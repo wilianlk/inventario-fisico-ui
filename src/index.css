@@ -1,0 +1,22 @@
+/* NO meter @tailwind aquí, ya está en App.css */
+
+/* Reset mínimo y comportamiento base */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Fuente base (puedes cambiarla si quieres) */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  sans-serif;
+}
