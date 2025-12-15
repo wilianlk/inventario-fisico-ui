@@ -23,8 +23,10 @@ const Conteos = () => {
     const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
 
     const [scanValue, setScanValue] = useState("");
+    const scanValueRef = useRef("");
 
     const [busqueda, setBusqueda] = useState<SearchFilters>({
+        etiqueta: "",
         codigoItem: "",
         descripcion: "",
         lote: "",
@@ -33,7 +35,6 @@ const Conteos = () => {
 
     const scanInputRef = useRef<HTMLInputElement | null>(null);
     const didLoadRef = useRef(false);
-
     const scanTimerRef = useRef<number | null>(null);
 
     const qtyByIdRef = useRef<Record<number, number>>({});
@@ -42,7 +43,11 @@ const Conteos = () => {
 
     const rebuildQtyRefs = (lista: DetalleConteo[]) => {
         const map: Record<number, number> = {};
-        for (const det of lista) for (const it of det.items) map[it.id] = it.cantidadContada ?? 0;
+        for (const det of lista) {
+            for (const it of det.items) {
+                map[it.id] = it.cantidadContada ?? 0;
+            }
+        }
         qtyByIdRef.current = map;
         confirmedByIdRef.current = { ...map };
     };
@@ -52,7 +57,9 @@ const Conteos = () => {
         setDetalles((prev) =>
             prev.map((det) => ({
                 ...det,
-                items: det.items.map((it) => (it.id === itemId ? { ...it, cantidadContada: cantidad } : it)),
+                items: det.items.map((it) =>
+                    it.id === itemId ? { ...it, cantidadContada: cantidad } : it
+                ),
             }))
         );
     };
@@ -140,7 +147,7 @@ const Conteos = () => {
     };
 
     const resetBusquedaManual = () => {
-        setBusqueda({ codigoItem: "", descripcion: "", lote: "", ubicacion: "" });
+        setBusqueda({ etiqueta: "", codigoItem: "", descripcion: "", lote: "", ubicacion: "" });
     };
 
     const scan = useConteoScan({
@@ -177,6 +184,7 @@ const Conteos = () => {
         } catch (e: any) {
             toast.error(e?.message ?? "Error procesando el código.");
         } finally {
+            scanValueRef.current = "";
             setScanValue("");
             scanInputRef.current?.focus();
         }
@@ -188,8 +196,8 @@ const Conteos = () => {
             scanTimerRef.current = null;
         }
 
-        const raw = scanValue;
-        if (!raw || raw.trim() === "") return;
+        const raw = (scanValueRef.current || "").trim();
+        if (!raw) return;
 
         scanTimerRef.current = window.setTimeout(() => {
             void procesarScan(raw);
@@ -201,28 +209,36 @@ const Conteos = () => {
                 scanTimerRef.current = null;
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scanValue]);
 
     return (
         <section className="space-y-6 max-w-6xl mx-auto px-3 sm:px-4 lg:px-6">
             <header className="space-y-4">
                 <div className="space-y-1">
-                    <h1 className="text-xl sm:text-2xl font-semibold text-slate-900">Conteo manual de inventario</h1>
+                    <h1 className="text-xl sm:text-2xl font-semibold text-slate-900">
+                        Conteo manual de inventario
+                    </h1>
                     <p className="text-xs sm:text-sm text-slate-600">
-                        Escanea el <b>Código ítem</b> para registrar automáticamente. Si está en varias ubicaciones, selecciona ubicación/fila en pantalla.
+                        Escanea el <b>Código ítem</b> para registrar automáticamente. Si está en varias ubicaciones,
+                        selecciona ubicación/fila en pantalla.
                     </p>
                 </div>
 
                 <div className="rounded-xl border bg-white p-3 sm:p-4 shadow-sm space-y-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                         <div className="flex-1 md:max-w-xl space-y-1">
-                            <div className="text-[11px] sm:text-xs font-medium text-slate-700">Escáner (Código ítem)</div>
+                            <div className="text-[11px] sm:text-xs font-medium text-slate-700">
+                                Escáner (Código ítem)
+                            </div>
 
                             <Input
                                 ref={scanInputRef}
                                 value={scanValue}
-                                onChange={(e) => setScanValue(e.target.value)}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    scanValueRef.current = v;
+                                    setScanValue(v);
+                                }}
                                 onKeyDown={(e) => {
                                     if (e.key !== "Enter") return;
                                     e.preventDefault();
@@ -231,7 +247,9 @@ const Conteos = () => {
                                         window.clearTimeout(scanTimerRef.current);
                                         scanTimerRef.current = null;
                                     }
-                                    void procesarScan(scanValue);
+
+                                    const v = (e.currentTarget.value || "").trim();
+                                    void procesarScan(v);
                                 }}
                                 placeholder="Escanea Código ítem"
                                 className="text-xs sm:text-sm"
@@ -240,16 +258,30 @@ const Conteos = () => {
                         </div>
 
                         <div className="flex md:flex-col gap-2 md:gap-3 md:w-32">
-                            <Button type="button" size="sm" variant="outline" onClick={limpiarFiltros} className="text-xs sm:text-sm w-full">
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={limpiarFiltros}
+                                className="text-xs sm:text-sm w-full"
+                            >
                                 Limpiar filtros
                             </Button>
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">Búsqueda manual</div>
+                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">
+                            Búsqueda manual
+                        </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                            <Input
+                                value={busqueda.etiqueta}
+                                onChange={(e) => setBusqueda((p) => ({ ...p, etiqueta: e.target.value }))}
+                                placeholder="Etiqueta"
+                                className="text-xs sm:text-sm"
+                            />
                             <Input
                                 value={busqueda.codigoItem}
                                 onChange={(e) => setBusqueda((p) => ({ ...p, codigoItem: e.target.value }))}
@@ -265,13 +297,13 @@ const Conteos = () => {
                             <Input
                                 value={busqueda.lote}
                                 onChange={(e) => setBusqueda((p) => ({ ...p, lote: e.target.value }))}
-                                placeholder="Lote (manual)"
+                                placeholder="Lote"
                                 className="text-xs sm:text-sm"
                             />
                             <Input
                                 value={busqueda.ubicacion}
                                 onChange={(e) => setBusqueda((p) => ({ ...p, ubicacion: e.target.value }))}
-                                placeholder="Ubicación (manual)"
+                                placeholder="Ubicación"
                                 className="text-xs sm:text-sm"
                             />
                         </div>

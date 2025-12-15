@@ -26,7 +26,11 @@ import { Button } from "@/components/ui/button";
 
 import { toast } from "react-toastify";
 
+type TabValue = "crear" | "lista";
+
 const Operaciones = () => {
+    const [tab, setTab] = useState<TabValue>("crear");
+
     const [operaciones, setOperaciones] = useState<Operacion[]>([]);
     const [loadingOperaciones, setLoadingOperaciones] = useState(false);
     const [gruposDisponibles, setGruposDisponibles] = useState<GrupoConteo[]>([]);
@@ -38,11 +42,12 @@ const Operaciones = () => {
     const [personasOpen, setPersonasOpen] = useState(false);
     const [ubicacionesOpen, setUbicacionesOpen] = useState(false);
 
-    // dialogs de confirmación
     const [operacionACerrar, setOperacionACerrar] = useState<Operacion | null>(null);
     const [operacionAEliminar, setOperacionAEliminar] = useState<Operacion | null>(null);
     const [loadingCerrar, setLoadingCerrar] = useState(false);
     const [loadingEliminar, setLoadingEliminar] = useState(false);
+
+    const [errorCerrarMsg, setErrorCerrarMsg] = useState<string>("");
 
     const normalizarRespuestaOperaciones = (data: any): Operacion[] => {
         if (Array.isArray(data)) return data;
@@ -56,6 +61,15 @@ const Operaciones = () => {
         if (Array.isArray(data?.data)) return data.data;
         if (Array.isArray(data?.result)) return data.result;
         return [];
+    };
+
+    const parseApiErrorMessage = (error: any, fallback: string) => {
+        const d = error?.response?.data;
+        if (!d) return fallback;
+        if (typeof d === "string") return d;
+        if (typeof d?.mensaje === "string") return d.mensaje;
+        if (typeof d?.message === "string") return d.message;
+        return fallback;
     };
 
     const cargarOperaciones = async () => {
@@ -90,6 +104,11 @@ const Operaciones = () => {
         cargarGrupos();
     }, []);
 
+    const handleCreated = async () => {
+        await cargarOperaciones();
+        setTab("lista");
+    };
+
     const handleEliminarClick = (id: number) => {
         const op = operaciones.find((o) => o.id === id);
         if (!op) {
@@ -108,11 +127,7 @@ const Operaciones = () => {
             await cargarOperaciones();
         } catch (error: any) {
             console.error(error);
-            const msg =
-                error?.response?.data?.mensaje ||
-                error?.response?.data?.message ||
-                error?.response?.data ||
-                "No se pudo eliminar la operación.";
+            const msg = parseApiErrorMessage(error, "No se pudo eliminar la operación.");
             toast.error(msg);
         } finally {
             setLoadingEliminar(false);
@@ -127,8 +142,8 @@ const Operaciones = () => {
             return;
         }
 
-        if (!op.bodega || !op.tipo || !op.fecha) {
-            toast.warning("La operación no está completa. Verifica bodega, tipo y fecha.");
+        if (!op.bodega || !op.fecha) {
+            toast.warning("La operación no está completa. Verifica bodega y fecha.");
             return;
         }
 
@@ -137,6 +152,7 @@ const Operaciones = () => {
             return;
         }
 
+        setErrorCerrarMsg("");
         setOperacionACerrar(op);
     };
 
@@ -144,20 +160,17 @@ const Operaciones = () => {
         if (!operacionACerrar) return;
         try {
             setLoadingCerrar(true);
+            setErrorCerrarMsg("");
             await cerrarOperacion(operacionACerrar.id);
             toast.success("Operación cerrada correctamente.");
             await cargarOperaciones();
+            setOperacionACerrar(null);
         } catch (error: any) {
             console.error(error);
-            const msg =
-                error?.response?.data?.mensaje ||
-                error?.response?.data?.message ||
-                error?.response?.data ||
-                "No se pudo cerrar la operación.";
-            toast.error(msg);
+            const msg = parseApiErrorMessage(error, "No se pudo cerrar la operación.");
+            setErrorCerrarMsg(msg);
         } finally {
             setLoadingCerrar(false);
-            setOperacionACerrar(null);
         }
     };
 
@@ -190,12 +203,11 @@ const Operaciones = () => {
                     Operaciones de inventario físico
                 </h1>
                 <p className="text-sm text-slate-600">
-                    Crea, administra y cierra operaciones de inventario por bodega, ubicación,
-                    número de conteo y grupos responsables.
+                    Crea, administra y cierra operaciones de inventario por bodega, número de conteo y grupos responsables.
                 </p>
             </header>
 
-            <Tabs defaultValue="crear" className="mt-2">
+            <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)} className="mt-2">
                 <div className="rounded-xl shadow-xl overflow-hidden">
                     <div className="bg-slate-900 px-4 pt-3 pb-0">
                         <TabsList className="flex bg-transparent gap-0">
@@ -235,7 +247,7 @@ const Operaciones = () => {
                         <TabsContent value="crear">
                             <OperacionCrear
                                 gruposDisponibles={gruposDisponibles}
-                                onCreated={cargarOperaciones}
+                                onCreated={handleCreated}
                             />
                         </TabsContent>
 
@@ -273,19 +285,20 @@ const Operaciones = () => {
                 onClose={() => setUbicacionesOpen(false)}
             />
 
-            {/* Dialog cerrar operación */}
             <Dialog
                 open={!!operacionACerrar}
                 onOpenChange={(open) => {
-                    if (!open) setOperacionACerrar(null);
+                    if (!open) {
+                        setOperacionACerrar(null);
+                        setErrorCerrarMsg("");
+                    }
                 }}
             >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Cerrar operación</DialogTitle>
                         <DialogDescription>
-                            Se cerrará la operación de inventario seleccionada. Esta acción no
-                            se puede deshacer.
+                            Se cerrará la operación de inventario seleccionada. Esta acción no se puede deshacer.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -295,21 +308,28 @@ const Operaciones = () => {
                                 <span className="font-medium">ID:</span> {operacionACerrar.id}
                             </div>
                             <div>
-                                <span className="font-medium">Bodega:</span>{" "}
-                                {operacionACerrar.bodega}
+                                <span className="font-medium">Bodega:</span> {operacionACerrar.bodega}
                             </div>
                             <div>
-                                <span className="font-medium">Tipo:</span>{" "}
-                                {operacionACerrar.tipo}
+                                <span className="font-medium">Conteo:</span> {operacionACerrar.numeroConteo}
                             </div>
                         </div>
                     )}
+
+                    {errorCerrarMsg ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                            {errorCerrarMsg}
+                        </div>
+                    ) : null}
 
                     <DialogFooter className="gap-2">
                         <Button
                             type="button"
                             variant="outline"
-                            onClick={() => setOperacionACerrar(null)}
+                            onClick={() => {
+                                setOperacionACerrar(null);
+                                setErrorCerrarMsg("");
+                            }}
                             disabled={loadingCerrar}
                         >
                             Cancelar
@@ -325,7 +345,6 @@ const Operaciones = () => {
                 </DialogContent>
             </Dialog>
 
-            {/* Dialog eliminar operación */}
             <Dialog
                 open={!!operacionAEliminar}
                 onOpenChange={(open) => {
@@ -336,8 +355,7 @@ const Operaciones = () => {
                     <DialogHeader>
                         <DialogTitle>Eliminar operación</DialogTitle>
                         <DialogDescription>
-                            Se eliminará la operación en estado EN_PREPARACION. Esta acción es
-                            irreversible.
+                            Se eliminará la operación en estado EN_PREPARACION. Esta acción es irreversible.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -347,14 +365,11 @@ const Operaciones = () => {
                                 <span className="font-medium">ID:</span> {operacionAEliminar.id}
                             </div>
                             <div>
-                                <span className="font-medium">Bodega:</span>{" "}
-                                {operacionAEliminar.bodega}
+                                <span className="font-medium">Bodega:</span> {operacionAEliminar.bodega}
                             </div>
                             <div>
-                                <span className="font-medium">Tipo:</span>{" "}
-                                {operacionAEliminar.tipo}
+                                <span className="font-medium">Conteo:</span> {operacionAEliminar.numeroConteo}
                             </div>
-
                         </div>
                     )}
 

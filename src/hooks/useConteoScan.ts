@@ -63,21 +63,19 @@ export const useConteoScan = ({
     };
 
     const openModal = (items: ItemConteo[], inc: number, key: string) => {
+        onSelectItem(null);
+        setUbicSelected(null);
         setCandidates(items);
         setPendingInc(inc);
         setPendingKey(key);
-        setUbicSelected(null);
         setModalOpen(true);
-        onSelectItem(null);
     };
 
     const aplicarConteoEnItem = async (itemId: number) => {
         const item = candidates.find((x) => x.id === itemId) ?? null;
         if (!item) return;
 
-        // Esto es lo que hace focus/scroll en la tabla (vía ConteoTable effect)
         onSelectItem(item.id);
-
         onResetBusquedaManual();
         await onSumarCantidad(item.id, pendingInc);
         closeModal();
@@ -91,8 +89,6 @@ export const useConteoScan = ({
         if (rows.length === 1) {
             await aplicarConteoEnItem(rows[0].id);
         }
-        // Si hay varias filas: NO hacemos nada más.
-        // El usuario elige la fila y ahí se hace focus/guardado.
     };
 
     const procesarCodigo = async (raw: string, incremento: number): Promise<ScanProcessResult> => {
@@ -104,7 +100,6 @@ export const useConteoScan = ({
             return { handled: true, warn: "La cantidad a sumar debe ser mayor a 0." };
         }
 
-        // El escáner es SOLO código ítem.
         if (modalOpen) {
             return { handled: true, warn: "Selecciona la ubicación/fila en pantalla (el escáner es solo Código ítem)." };
         }
@@ -134,19 +129,14 @@ export const useConteoScan = ({
     return {
         modalOpen,
         closeModal,
-
         pendingKey,
-
         ubicSelected,
         setUbicSelected,
-
         ubicaciones: groupByUbicacion.ubicaciones,
         ubicCounts: groupByUbicacion.ubicCounts,
         filasDeUbicacion,
-
         selectUbicacion,
         aplicarConteoEnItem,
-
         procesarCodigo,
     };
 };

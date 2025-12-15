@@ -3,7 +3,6 @@ import api from "./api";
 export interface Operacion {
     id: number;
     bodega: string;
-    tipo: string;
     fecha: string;
     observaciones: string;
     estado: string;
@@ -14,7 +13,6 @@ export interface Operacion {
 
 export interface CrearOperacionRequest {
     bodega: string;
-    tipo: string;
     fecha: string;
     observaciones?: string;
     usuarioCreacion: string;

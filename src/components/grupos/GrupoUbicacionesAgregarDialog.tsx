@@ -53,6 +53,13 @@ export function GrupoUbicacionesAgregarDialog({
     const [previewError, setPreviewError] = useState<string | null>(null);
     const [agregando, setAgregando] = useState(false);
 
+    const normalizeUb = (u: string) => (u || "").trim().toUpperCase();
+
+    const uniqueUbs = (arr: string[]) => {
+        const norm = arr.map(normalizeUb).filter(Boolean);
+        return Array.from(new Set(norm));
+    };
+
     const reset = () => {
         setModo("unico");
         setUbicacionUnica("");
@@ -98,7 +105,8 @@ export function GrupoUbicacionesAgregarDialog({
 
         try {
             const rango = await buscarUbicaciones(desde, hasta);
-            const lista: string[] = rango.data || [];
+            const listaRaw: string[] = rango.data || [];
+            const lista = uniqueUbs(listaRaw);
 
             if (!lista || lista.length === 0) {
                 setPreviewError("La ubicación no existe en inventario.");
@@ -130,64 +138,90 @@ export function GrupoUbicacionesAgregarDialog({
     };
 
     const handleConfirmarAgregar = async () => {
-        if (previewUbicaciones.length === 0) return;
+        if (agregando) return;
+
+        const ubs = uniqueUbs(previewUbicaciones);
+        if (ubs.length === 0) return;
 
         setAgregando(true);
         onSetParentError(null);
 
-        const fallidas: string[] = [];
-        const otrosErrores: string[] = [];
+        const agregadas: string[] = [];
+        const yaEnGrupo = new Set<string>();
+        const otrosErrores: Array<{ ub: string; msg: string }> = [];
+
+        const isYaAsignadaMismoGrupo = (msg: string) => {
+            const m = (msg || "").toLowerCase();
+            return (
+                m.includes("ya está asignada a este grupo") ||
+                m.includes("ya esta asignada a este grupo")
+            );
+        };
+
+        const resumenLista = (arr: string[], max = 12) => {
+            const unicas = Array.from(new Set(arr.map(normalizeUb).filter(Boolean))).sort();
+            if (unicas.length <= max) return unicas.join(", ");
+            return `${unicas.slice(0, max).join(", ")} y ${unicas.length - max} más`;
+        };
 
         try {
-            for (const ub of previewUbicaciones) {
+            for (const ub of ubs) {
                 try {
                     await agregarUbicacion(grupo.id, ub);
+                    agregadas.push(ub);
                 } catch (err: any) {
                     const msg =
                         err?.response?.data?.mensaje ||
                         err?.response?.data?.message ||
                         "Error al agregar ubicación.";
 
-                    if (msg.includes("ya está asignada") || msg.includes("ya esta asignada")) {
-                        fallidas.push(`${ub}: ${msg}`);
+                    if (isYaAsignadaMismoGrupo(msg)) {
+                        yaEnGrupo.add(ub);
                     } else {
-                        otrosErrores.push(`${ub}: ${msg}`);
+                        otrosErrores.push({ ub, msg });
                     }
                 }
             }
 
             await onAfterAdd();
 
-            const agregadas = previewUbicaciones.filter(
-                (u) => !fallidas.some((f) => f.startsWith(`${u}:`))
-            );
-
             if (agregadas.length > 0) {
-                toast.success(
-                    `Se agregaron ${agregadas.length} ubicación(es): ${agregadas.join(", ")}.`
-                );
+                toast.success(`Se agregaron ${agregadas.length} ubicación(es).`);
             }
 
             let msgFinal = "";
 
-            if (fallidas.length > 0) {
-                msgFinal +=
-                    "No se pudieron agregar estas ubicaciones porque ya están asignadas: " +
-                    fallidas.join(" | ");
+            const yaList = Array.from(yaEnGrupo);
+            if (yaList.length > 0) {
+                const r = resumenLista(yaList);
+                msgFinal += `Ya estaban en este grupo (${yaList.length}): ${r}.`;
+                toast.info(`Ya estaban en este grupo: ${r}.`);
             }
 
             if (otrosErrores.length > 0) {
-                if (msgFinal) msgFinal += " ";
-                msgFinal += "Errores adicionales: " + otrosErrores.join(" | ");
+                const unicos = new Map<string, string>();
+                for (const e of otrosErrores) {
+                    if (!unicos.has(e.ub)) unicos.set(e.ub, e.msg);
+                }
+
+                const lineas = Array.from(unicos.entries())
+                    .slice(0, 10)
+                    .map(([ub, msg]) => `• ${ub}: ${msg}`)
+                    .join("\n");
+
+                const extra = unicos.size > 10 ? `\n• y ${unicos.size - 10} más.` : "";
+
+                msgFinal += (msgFinal ? "\n\n" : "") + `Errores al agregar (${unicos.size}):\n${lineas}${extra}`;
+                toast.error(`Hubo ${unicos.size} error(es) al agregar.`);
             }
 
             if (msgFinal) {
                 onSetParentError(msgFinal);
-                toast.warn(msgFinal);
-            } else {
-                reset();
-                onClose();
+                return;
             }
+
+            reset();
+            onClose();
         } finally {
             setAgregando(false);
         }

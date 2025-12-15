@@ -26,8 +26,21 @@ export interface DetalleConteo {
     items: ItemConteo[];
 }
 
+export interface ConteoPorGrupoResponse {
+    operacionId: number;
+    grupoId: number;
+    grupo: string;
+    conteoId: number;
+    numeroConteo: number;
+    items: ItemConteo[];
+}
+
 export const obtenerConteoActual = () => {
     return api.get<DetalleConteo[]>("/Inventario/conteo/actual");
+};
+
+export const obtenerConteoPorGrupo = (operacionId: number, grupoId: number) => {
+    return api.get<ConteoPorGrupoResponse>(`/Inventario/conteo/por-grupo/${operacionId}/${grupoId}`);
 };
 
 export const actualizarCantidadContada = (itemId: number, cantidadContada: number) => {

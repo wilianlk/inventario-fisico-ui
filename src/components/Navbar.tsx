@@ -18,8 +18,8 @@ export function Navbar() {
 
     const items = [
         { path: "/", label: "Inicio", icon: Home },
-        { path: "/operaciones", label: "Operaciones", icon: Boxes },
         { path: "/grupos", label: "Grupos", icon: Users },
+        { path: "/operaciones", label: "Operaciones", icon: Boxes },
         { path: "/conteos", label: "Conteos", icon: ClipboardList },
         { path: "/consolidacion", label: "Consolidación", icon: BarChart2 },
         { path: "/auditoria", label: "Auditoría", icon: FileSpreadsheet },
@@ -34,9 +34,7 @@ export function Navbar() {
         shadow-[0_2px_10px_rgba(0,0,0,0.45)]
       "
         >
-            {/* CONTENEDOR */}
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-                {/* LOGO / TÍTULO */}
                 <div className="flex items-center gap-2 select-none">
                     <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-blue-500 to-cyan-400 flex items-center justify-center shadow-md">
                         <Boxes className="h-5 w-5 text-slate-950" />
@@ -49,7 +47,6 @@ export function Navbar() {
                     </div>
                 </div>
 
-                {/* BOTÓN HAMBURGUESA (MÓVIL) */}
                 <button
                     className="inline-flex items-center justify-center rounded-lg p-2 text-slate-200 hover:bg-slate-800 md:hidden transition"
                     onClick={() => setOpen((prev) => !prev)}
@@ -57,7 +54,6 @@ export function Navbar() {
                     {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                 </button>
 
-                {/* MENÚ DESKTOP */}
                 <ul className="hidden items-center gap-2 md:flex">
                     {items.map((item) => {
                         const Icon = item.icon;
@@ -84,7 +80,6 @@ export function Navbar() {
                 </ul>
             </div>
 
-            {/* MENÚ MÓVIL */}
             {open && (
                 <div className="border-t border-slate-800 bg-slate-950 md:hidden">
                     <ul className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3">
