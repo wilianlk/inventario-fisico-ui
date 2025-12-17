@@ -2,14 +2,7 @@ import { useEffect, useRef, useState, KeyboardEvent } from "react";
 import { ItemConteo } from "@/services/conteoService";
 import { Input } from "@/components/ui/input";
 import { toast } from "react-toastify";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export interface SearchFilters {
     etiqueta: string;
@@ -18,13 +11,6 @@ export interface SearchFilters {
     lote: string;
     ubicacion: string;
 }
-
-type Parts = {
-    unidades: string;
-    paquetes: string;
-    saldos: string; // Cambiado de "sueltas" a "saldos"
-    total: string;
-};
 
 type RowState =
     | { status: "idle" }
@@ -38,6 +24,7 @@ interface Props {
     onUpdateCantidad: (id: number, cantidad: number) => Promise<void>;
     selectedItemId?: number | null;
     searchFilters: SearchFilters;
+    editable?: boolean;
 }
 
 const ConteoTable = ({
@@ -46,29 +33,44 @@ const ConteoTable = ({
                          onUpdateCantidad,
                          selectedItemId,
                          searchFilters,
+                         editable = true,
                      }: Props) => {
-    const [partsById, setPartsById] = useState<Record<number, Parts>>({});
+    const [unidById, setUnidById] = useState<Record<number, string>>({});
     const [rowStateById, setRowStateById] = useState<Record<number, RowState>>({});
     const [locked, setLocked] = useState(false);
 
-    const lastSavedTotalRef = useRef<Record<number, number>>({});
-    const totalRefs = useRef<Record<number, HTMLInputElement | null>>({});
+    const lastSavedRef = useRef<Record<number, number>>({});
+    const unidRefs = useRef<Record<number, HTMLInputElement | null>>({});
     const clearSavedTimersRef = useRef<Record<number, number>>({});
+
+    useEffect(() => {
+        if (!editable) {
+            setLocked(true);
+            return;
+        }
+        setLocked(false);
+    }, [editable]);
+
+    useEffect(() => {
+        const nextSaved: Record<number, number> = {};
+        const nextUnid: Record<number, string> = {};
+        for (const it of items) {
+            const v = it.cantidadContada ?? 0;
+            nextSaved[it.id] = v;
+            nextUnid[it.id] = String(v);
+        }
+        lastSavedRef.current = { ...lastSavedRef.current, ...nextSaved };
+        setUnidById((prev) => ({ ...nextUnid, ...prev }));
+    }, [items]);
 
     useEffect(() => {
         if (!selectedItemId) return;
         const row = document.getElementById(`row-${selectedItemId}`);
         row?.scrollIntoView({ behavior: "smooth", block: "center" });
-        const el = totalRefs.current[selectedItemId];
+        const el = unidRefs.current[selectedItemId];
         el?.focus();
         el?.select();
     }, [selectedItemId]);
-
-    useEffect(() => {
-        const map: Record<number, number> = {};
-        for (const it of items) map[it.id] = it.cantidadContada ?? 0;
-        lastSavedTotalRef.current = { ...lastSavedTotalRef.current, ...map };
-    }, [items]);
 
     useEffect(() => {
         return () => {
@@ -79,11 +81,7 @@ const ConteoTable = ({
     }, []);
 
     if (loading) {
-        return (
-            <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">
-                Cargando ítems...
-            </div>
-        );
+        return <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">Cargando ítems...</div>;
     }
 
     const fEtiqueta = (searchFilters.etiqueta || "").trim().toLowerCase();
@@ -109,11 +107,7 @@ const ConteoTable = ({
     });
 
     if (!filtrados || filtrados.length === 0) {
-        return (
-            <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">
-                No hay ítems para mostrar.
-            </div>
-        );
+        return <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">No hay ítems para mostrar.</div>;
     }
 
     const toNum = (v: string) => {
@@ -124,61 +118,12 @@ const ConteoTable = ({
 
     const clamp0 = (n: number) => (n < 0 ? 0 : n);
 
-    const getParts = (item: ItemConteo): Parts => {
-        const p = partsById[item.id];
-        if (p) return p;
-
-        const base = String(item.cantidadContada ?? 0);
-        return { unidades: "", paquetes: "", saldos: "", total: base }; // Cambio aquí de "sueltas" a "saldos"
-    };
-
-    const anyManualFilled = (p: Parts) =>
-        (p.unidades || "").trim() !== "" ||
-        (p.paquetes || "").trim() !== "" ||
-        (p.saldos || "").trim() !== ""; // Cambio aquí de "sueltas" a "saldos"
-
-    const calcularManual = (p: Parts) => {
-        const u = toNum(p.unidades);
-        const paq = toNum(p.paquetes);
-        const s = toNum(p.saldos); // Cambio aquí de "sueltas" a "saldos"
-        return clamp0(u * paq + s);
-    };
-
-    const getTotalDisplay = (p: Parts) => {
-        if (anyManualFilled(p)) return calcularManual(p);
-        return clamp0(toNum(p.total));
-    };
-
-    const setPart = (id: number, next: Parts) => {
-        setPartsById((prev) => ({ ...prev, [id]: next }));
-    };
-
-    const setManualField = (
-        item: ItemConteo,
-        key: "unidades" | "paquetes" | "saldos", // Cambio aquí de "sueltas" a "saldos"
-        value: string
-    ) => {
-        if (locked) return;
-        const p = getParts(item);
-        const next = { ...p, [key]: value };
-        const totalManual = calcularManual(next);
-        setPart(item.id, { ...next, total: String(totalManual) });
-    };
-
-    const setTotalField = (item: ItemConteo, value: string) => {
-        if (locked) return;
-        const p = getParts(item);
-        setPart(item.id, { ...p, unidades: "", paquetes: "", saldos: "", total: value }); // Cambio aquí de "sueltas" a "saldos"
-    };
-
     const setRowState = (id: number, state: RowState) => {
         setRowStateById((prev) => ({ ...prev, [id]: state }));
     };
 
     const markSavedTemporarily = (id: number) => {
-        if (clearSavedTimersRef.current[id]) {
-            window.clearTimeout(clearSavedTimersRef.current[id]);
-        }
+        if (clearSavedTimersRef.current[id]) window.clearTimeout(clearSavedTimersRef.current[id]);
         clearSavedTimersRef.current[id] = window.setTimeout(() => {
             setRowState(id, { status: "idle" });
         }, 1200);
@@ -195,22 +140,22 @@ const ConteoTable = ({
     };
 
     const guardarSiCambia = async (item: ItemConteo) => {
-        if (locked) return;
+        if (locked || !editable) return;
 
-        const p = getParts(item);
-        const total = getTotalDisplay(p);
+        const raw = (unidById[item.id] ?? "").toString();
+        const total = clamp0(toNum(raw));
 
-        const last = lastSavedTotalRef.current[item.id] ?? (item.cantidadContada ?? 0);
+        const last = lastSavedRef.current[item.id] ?? (item.cantidadContada ?? 0);
         if (total === last) return;
 
         setRowState(item.id, { status: "saving" });
 
         try {
             await onUpdateCantidad(item.id, total);
-            lastSavedTotalRef.current[item.id] = total;
+            lastSavedRef.current[item.id] = total;
             setRowState(item.id, { status: "saved" });
             markSavedTemporarily(item.id);
-        } catch (err) {
+        } catch (err: any) {
             const { status, message } = extractError(err);
             const isLocked = status === 409;
             if (isLocked) setLocked(true);
@@ -218,13 +163,11 @@ const ConteoTable = ({
             setRowState(item.id, { status: "error", message, locked: isLocked });
             toast.error(message);
 
-            if ((p.total || "").trim() === "") {
-                setTotalField(item, String(last));
-            }
+            setUnidById((prev) => ({ ...prev, [item.id]: String(last) }));
         }
     };
 
-    const handleKeyDownTotal = (e: KeyboardEvent<HTMLInputElement>, item: ItemConteo) => {
+    const handleKeyDownUnid = (e: KeyboardEvent<HTMLInputElement>, item: ItemConteo) => {
         if (e.key === "Enter") {
             e.preventDefault();
             void guardarSiCambia(item);
@@ -233,22 +176,24 @@ const ConteoTable = ({
 
     const renderRowState = (rs: RowState | undefined) => {
         if (!rs || rs.status === "idle") return null;
-
         if (rs.status === "saving") return <span className="text-[11px] text-slate-500">Guardando...</span>;
         if (rs.status === "saved") return <span className="text-[11px] text-emerald-600">Guardado</span>;
-
         return (
             <span className="text-[11px] text-red-600" title={rs.message}>
-        Error
-      </span>
+                Error
+            </span>
         );
     };
 
     return (
         <div className="w-full rounded-xl border bg-white p-3 sm:p-4 shadow-sm overflow-x-auto md:overflow-visible">
-            {locked ? (
+            {!editable ? (
                 <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    Edición bloqueada: la operación está cerrada o ya fue consolidada.
+                    Conteo cerrado. Solo lectura.
+                </div>
+            ) : locked ? (
+                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Edición bloqueada.
                 </div>
             ) : null}
 
@@ -267,10 +212,9 @@ const ConteoTable = ({
 
                 <TableBody>
                     {filtrados.map((item) => {
-                        const p = getParts(item);
-                        const totalDisplay = getTotalDisplay(p);
                         const etiqueta = (((item as any).etiqueta ?? "") as string).toString().trim();
                         const rs = rowStateById[item.id];
+                        const disabled = locked || !editable;
 
                         return (
                             <TableRow
@@ -291,53 +235,24 @@ const ConteoTable = ({
                                     {item.lote ? item.lote.trim() : ""}
                                 </TableCell>
 
-                                <TableCell className="min-w-[460px]">
+                                <TableCell className="min-w-[220px]">
                                     <div className="flex items-center gap-2">
                                         <Input
                                             type="number"
-                                            className="h-8 w-20 text-[11px] sm:text-xs md:text-xs"
+                                            className="h-8 w-28 text-[11px] sm:text-xs md:text-xs font-mono"
                                             placeholder="Unid"
-                                            value={p.unidades}
-                                            onChange={(e) => setManualField(item, "unidades", e.target.value)}
-                                            min={0}
-                                            disabled={locked}
-                                        />
-                                        <div className="text-xs text-slate-500 font-mono">x</div>
-                                        <Input
-                                            type="number"
-                                            className="h-8 w-20 text-[11px] sm:text-xs md:text-xs"
-                                            placeholder="Paq"
-                                            value={p.paquetes}
-                                            onChange={(e) => setManualField(item, "paquetes", e.target.value)}
-                                            min={0}
-                                            disabled={locked}
-                                        />
-                                        <div className="text-xs text-slate-500 font-mono">+</div>
-                                        <Input
-                                            type="number"
-                                            className="h-8 w-20 text-[11px] sm:text-xs md:text-xs"
-                                            placeholder="Saldos"
-                                            value={p.saldos} // Cambiado de "sueltas" a "saldos"
-                                            onChange={(e) => setManualField(item, "saldos", e.target.value)} // Cambiado de "sueltas" a "saldos"
-                                            min={0}
-                                            disabled={locked}
-                                        />
-                                        <div className="text-xs text-slate-500 font-mono">=</div>
-                                        <Input
-                                            type="number"
-                                            className="h-8 w-24 text-[11px] sm:text-xs md:text-xs font-mono"
-                                            placeholder="Total"
-                                            value={anyManualFilled(p) ? String(totalDisplay) : p.total}
-                                            onChange={(e) => setTotalField(item, e.target.value)}
-                                            onKeyDown={(e) => handleKeyDownTotal(e, item)}
+                                            value={unidById[item.id] ?? String(item.cantidadContada ?? 0)}
+                                            onChange={(e) =>
+                                                setUnidById((prev) => ({ ...prev, [item.id]: e.target.value }))
+                                            }
+                                            onKeyDown={(e) => handleKeyDownUnid(e, item)}
                                             onBlur={() => void guardarSiCambia(item)}
                                             min={0}
-                                            disabled={locked}
+                                            disabled={disabled}
                                             ref={(el) => {
-                                                totalRefs.current[item.id] = el;
+                                                unidRefs.current[item.id] = el;
                                             }}
                                         />
-
                                         <div className="min-w-[72px] text-right">{renderRowState(rs)}</div>
                                     </div>
                                 </TableCell>

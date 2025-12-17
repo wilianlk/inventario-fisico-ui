@@ -4,11 +4,13 @@ import { toast } from "react-toastify";
 
 import ConteoTable, { SearchFilters } from "@/components/conteos/ConteoTable";
 import UbicacionPickerModal from "@/components/conteos/UbicacionPickerModal";
+import FinalizarConteoDialog from "@/components/conteos/FinalizarConteoDialog";
 import { useConteoScan } from "@/hooks/useConteoScan";
 
 import {
     obtenerConteoPorGrupo,
     actualizarCantidadContada,
+    finalizarConteo,
     ItemConteo,
     ConteoPorGrupoResponse,
 } from "@/services/conteoService";
@@ -48,11 +50,22 @@ function ConteoPorGrupo() {
     const confirmedByIdRef = useRef<Record<number, number>>({});
     const queueByIdRef = useRef<Record<number, Promise<void>>>({});
 
+    const [finalizarOpen, setFinalizarOpen] = useState(false);
+    const [finalizando, setFinalizando] = useState(false);
+
+    const estadoConteo = useMemo(() => {
+        const v = info?.estadoConteo;
+        return v ? String(v).toUpperCase() : "";
+    }, [info]);
+
+    const editable = useMemo(() => {
+        if (!estadoConteo) return true;
+        return estadoConteo === "ABIERTO";
+    }, [estadoConteo]);
+
     const rebuildQtyRefs = (lista: ItemConteo[]) => {
         const map: Record<number, number> = {};
-        for (const it of lista) {
-            map[it.id] = it.cantidadContada ?? 0;
-        }
+        for (const it of lista) map[it.id] = it.cantidadContada ?? 0;
         qtyByIdRef.current = map;
         confirmedByIdRef.current = { ...map };
     };
@@ -116,10 +129,16 @@ function ConteoPorGrupo() {
     }, [opId, gId]);
 
     useEffect(() => {
+        if (!editable) return;
         scanInputRef.current?.focus();
-    }, [items.length]);
+    }, [items.length, editable]);
 
     const guardarCantidadAbsoluta = async (itemId: number, cantidad: number) => {
+        if (!editable) {
+            toast.info("Conteo cerrado. Solo lectura.");
+            return;
+        }
+
         const n = Number(cantidad);
         const nueva = Number.isFinite(n) ? Math.max(0, n) : 0;
 
@@ -143,6 +162,11 @@ function ConteoPorGrupo() {
     };
 
     const sumarCantidad = async (itemId: number, delta: number) => {
+        if (!editable) {
+            toast.info("Conteo cerrado. Solo lectura.");
+            return;
+        }
+
         const d = Number(delta);
         if (!Number.isFinite(d) || d <= 0) return;
 
@@ -177,8 +201,10 @@ function ConteoPorGrupo() {
                 {
                     operacionId: opId,
                     grupoId: gId,
-                    grupo: (info as any).grupo ?? "",
+                    grupo: info.grupo ?? "",
+                    conteoId: info.conteoId,
                     numeroConteo: info.numeroConteo,
+                    estadoConteo: info.estadoConteo,
                     items: items,
                 },
             ]
@@ -194,6 +220,13 @@ function ConteoPorGrupo() {
     };
 
     const procesarScan = async (raw: string) => {
+        if (!editable) {
+            toast.info("Conteo cerrado. Solo lectura.");
+            scanValueRef.current = "";
+            setScanValue("");
+            return;
+        }
+
         const code = (raw || "").trim();
         if (!code) return;
 
@@ -212,6 +245,14 @@ function ConteoPorGrupo() {
     };
 
     useEffect(() => {
+        if (!editable) {
+            if (scanTimerRef.current) {
+                window.clearTimeout(scanTimerRef.current);
+                scanTimerRef.current = null;
+            }
+            return;
+        }
+
         if (scanTimerRef.current) {
             window.clearTimeout(scanTimerRef.current);
             scanTimerRef.current = null;
@@ -230,7 +271,29 @@ function ConteoPorGrupo() {
                 scanTimerRef.current = null;
             }
         };
-    }, [scanValue]);
+    }, [scanValue, editable]);
+
+    const confirmarFinalizar = async () => {
+        if (!info?.conteoId || !editable || finalizando) return;
+
+        setFinalizando(true);
+        try {
+            await finalizarConteo(info.conteoId);
+            setInfo((p) => (p ? { ...p, estadoConteo: "CERRADO" } : p));
+            toast.success("Conteo cerrado correctamente.");
+            setFinalizarOpen(false);
+        } catch (error: any) {
+            const msg =
+                error?.response?.data?.mensaje ||
+                error?.response?.data?.message ||
+                (typeof error?.response?.data === "string" ? error.response.data : null) ||
+                error?.message ||
+                "No se pudo cerrar el conteo.";
+            toast.error(String(msg));
+        } finally {
+            setFinalizando(false);
+        }
+    };
 
     return (
         <section className="space-y-4">
@@ -239,20 +302,26 @@ function ConteoPorGrupo() {
                     <div className="text-sm text-slate-600">Conteo por grupo</div>
                     <div className="text-base font-semibold text-slate-900">
                         Operación {Number.isFinite(opId) ? opId : "-"} ·{" "}
-                        {(info as any)?.grupo ? (info as any).grupo : `Grupo ${Number.isFinite(gId) ? gId : "-"}`}
+                        {info?.grupo ? info.grupo : `Grupo ${Number.isFinite(gId) ? gId : "-"}`}
                         {info?.numeroConteo ? ` · Conteo ${info.numeroConteo}` : ""}
+                        {estadoConteo ? ` · ${estadoConteo}` : ""}
                     </div>
                 </div>
 
+                {!editable && (
+                    <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                        Conteo cerrado. Solo lectura.
+                    </div>
+                )}
+
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div className="flex-1 md:max-w-xl space-y-1">
-                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">
-                            Escáner (Código ítem)
-                        </div>
+                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">Escáner (Código ítem)</div>
 
                         <Input
                             ref={scanInputRef}
                             value={scanValue}
+                            disabled={!editable}
                             onChange={(e) => {
                                 const v = e.target.value;
                                 scanValueRef.current = v;
@@ -276,7 +345,17 @@ function ConteoPorGrupo() {
                         />
                     </div>
 
-                    <div className="flex md:flex-col gap-2 md:gap-3 md:w-32">
+                    <div className="flex flex-col gap-2 md:gap-3 w-full md:w-44">
+                        <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => setFinalizarOpen(true)}
+                            disabled={!editable || !info?.conteoId || finalizando}
+                            className="text-xs sm:text-sm w-full"
+                        >
+                            {finalizando ? "Finalizando..." : "Finalizar conteo"}
+                        </Button>
+
                         <Button
                             type="button"
                             size="sm"
@@ -339,7 +418,7 @@ function ConteoPorGrupo() {
             </div>
 
             <UbicacionPickerModal
-                open={scan.modalOpen}
+                open={editable && scan.modalOpen}
                 onClose={scan.closeModal}
                 pendingKey={scan.pendingKey}
                 ubicaciones={scan.ubicaciones}
@@ -357,6 +436,14 @@ function ConteoPorGrupo() {
                 onUpdateCantidad={guardarCantidadAbsoluta}
                 selectedItemId={selectedItemId}
                 searchFilters={searchFilters}
+                editable={editable}
+            />
+
+            <FinalizarConteoDialog
+                open={finalizarOpen}
+                onOpenChange={setFinalizarOpen}
+                onConfirm={() => void confirmarFinalizar()}
+                loading={finalizando}
             />
         </section>
     );

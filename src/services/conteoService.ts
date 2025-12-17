@@ -1,5 +1,7 @@
 import api from "./api";
 
+export type EstadoConteo = "ABIERTO" | "CERRADO";
+
 export interface ItemConteo {
     id: number;
     operacionId: number;
@@ -23,6 +25,8 @@ export interface DetalleConteo {
     grupoId: number;
     grupo: string;
     numeroConteo: number;
+    conteoId: number;
+    estadoConteo: EstadoConteo;
     items: ItemConteo[];
 }
 
@@ -32,6 +36,7 @@ export interface ConteoPorGrupoResponse {
     grupo: string;
     conteoId: number;
     numeroConteo: number;
+    estadoConteo: EstadoConteo;
     items: ItemConteo[];
 }
 
@@ -45,4 +50,8 @@ export const obtenerConteoPorGrupo = (operacionId: number, grupoId: number) => {
 
 export const actualizarCantidadContada = (itemId: number, cantidadContada: number) => {
     return api.put(`/OperacionConteoItems/${itemId}/cantidad-contada`, cantidadContada);
+};
+
+export const finalizarConteo = (conteoId: number) => {
+    return api.put(`/Inventario/conteo/${conteoId}/finalizar`);
 };
