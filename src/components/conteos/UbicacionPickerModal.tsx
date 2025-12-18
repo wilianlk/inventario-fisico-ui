@@ -14,6 +14,8 @@ interface Props {
     open: boolean;
     onClose: () => void;
 
+    onAfterClose?: () => void; // NUEVO (opcional)
+
     pendingKey: string;
 
     ubicaciones: string[];
@@ -30,6 +32,7 @@ interface Props {
 const UbicacionPickerModal = ({
                                   open,
                                   onClose,
+                                  onAfterClose,
                                   pendingKey,
                                   ubicaciones,
                                   ubicCounts,
@@ -60,6 +63,11 @@ const UbicacionPickerModal = ({
     const desc =
         "Selecciona la ubicación. Si esa ubicación tiene varias filas, elige la fila exacta. (El escáner es solo Código ítem).";
 
+    const handleClose = () => {
+        onClose();
+        onAfterClose?.();
+    };
+
     const handleClickUbic = async (u: string) => {
         if (busy) return;
         setBusy(true);
@@ -82,7 +90,7 @@ const UbicacionPickerModal = ({
     };
 
     return (
-        <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>{titulo}</DialogTitle>
@@ -126,7 +134,7 @@ const UbicacionPickerModal = ({
                                 </div>
 
                                 <div className="flex justify-end">
-                                    <Button variant="outline" onClick={onClose} disabled={busy}>
+                                    <Button variant="outline" onClick={handleClose} disabled={busy}>
                                         Cancelar
                                     </Button>
                                 </div>
@@ -188,7 +196,7 @@ const UbicacionPickerModal = ({
                             )}
 
                             <div className="flex justify-end">
-                                <Button variant="outline" onClick={onClose} disabled={busy}>
+                                <Button variant="outline" onClick={handleClose} disabled={busy}>
                                     Cerrar
                                 </Button>
                             </div>

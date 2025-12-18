@@ -13,6 +13,12 @@ interface Params {
     onSumarCantidad: (itemId: number, delta: number) => Promise<void>;
     onSelectItem: (itemId: number | null) => void;
     onResetBusquedaManual: () => void;
+    onScanApplied?: (
+        itemId: number,
+        value: number,
+        opts?: { mode: "sum" | "replace" }
+    ) => void;
+
 }
 
 type ParsedScan = {
@@ -25,7 +31,13 @@ type ParsedScan = {
     cantidad?: string;
 };
 
-export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onResetBusquedaManual }: Params) => {
+export const useConteoScan = ({
+                                  detalles,
+                                  onSumarCantidad,
+                                  onSelectItem,
+                                  onResetBusquedaManual,
+                                  onScanApplied,
+                              }: Params) => {
     const [modalOpen, setModalOpen] = useState(false);
     const [candidates, setCandidates] = useState<ItemConteo[]>([]);
     const [ubicSelected, setUbicSelected] = useState<string | null>(null);
@@ -33,20 +45,51 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
     const [pendingKey, setPendingKey] = useState<string>("");
 
     const norm = (raw: string) => (raw ?? "").replace(/\r?\n/g, "").trim();
+    const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+    const parseCantidadNumber = (rawQty?: string): number | null => {
+        const s0 = (rawQty ?? "").trim();
+        if (!s0) return null;
+        const s = s0.replace(",", ".");
+        const n = Number(s);
+        if (!Number.isFinite(n)) return null;
+        const r = round4(n);
+        return r < 0 ? 0 : r;
+    };
+
+    const getIncrementoFromScan = (p: ParsedScan): number | null => {
+        const byCantidad = parseCantidadNumber(p.cantidad);
+        if (byCantidad !== null) return byCantidad;
+        const byUnidad = parseCantidadNumber(p.unidad);
+        if (byUnidad !== null) return byUnidad;
+        return null;
+    };
 
     const parseScan = (raw: string): ParsedScan => {
         const cleaned = norm(raw);
+        const compact = cleaned.replace(/\s+/g, "");
+        const digitsOnly = compact.replace(/\D/g, "");
 
-        const digitsOnly = cleaned.replace(/\D/g, "");
         if (digitsOnly.length === 20) {
             const codigoItem = digitsOnly.slice(0, 6);
             const lote = digitsOnly.slice(6, 12);
             const orden = digitsOnly.slice(12, 18);
             const unidad = digitsOnly.slice(18, 20);
-            return { raw: cleaned, codigoItem, lote, orden, unidad };
+            return { raw: cleaned, codigoItem, lote, orden, unidad, cantidad: unidad };
         }
 
-        const compact = cleaned.replace(/\s+/g, "");
+        if (digitsOnly.length >= 20) {
+            const codeLen = 7;
+            const restLen = digitsOnly.length - codeLen;
+            if (restLen > 12) {
+                const codigoItem = digitsOnly.slice(0, codeLen);
+                const lote = digitsOnly.slice(codeLen, codeLen + 6);
+                const orden = digitsOnly.slice(codeLen + 6, codeLen + 12);
+                const cantidad = digitsOnly.slice(codeLen + 12);
+                return { raw: cleaned, codigoItem, lote, orden, cantidad };
+            }
+        }
+
         const mIdx = compact.toLowerCase().indexOf("m");
         if (mIdx > 0) {
             const left = compact.slice(0, mIdx);
@@ -71,7 +114,7 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
             };
         }
 
-        if (digitsOnly.length >= 6) {
+        if (digitsOnly.length >= 1) {
             return { raw: cleaned, codigoItem: digitsOnly.slice(0, 7) };
         }
 
@@ -92,9 +135,9 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
         if (!code) return [];
 
         const matches: ItemConteo[] = [];
-        for (const d of detalles) {
-            for (const it of d.items) {
-                const itCodigo = (it.codigoItem || "").toString().trim();
+        for (const det of detalles) {
+            for (const it of det.items) {
+                const itCodigo = ((it.codigoItem ?? "") as string).toString().trim();
                 const itProd = (((it as any).prod ?? "") as string).toString().trim();
                 if (itCodigo === code || itProd === code) matches.push(it);
             }
@@ -110,25 +153,102 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
             const byLote = filtered.filter((it) => {
                 const itLote = (it.lote || "").toString().trim();
                 if (!itLote) return false;
-                if (lote && itLote === lote) return true;
-                if (loteAlt && itLote === loteAlt) return true;
-                if (loteAlt && itLote === `m${loteAlt}`) return true;
-                if (lote && itLote === lote.replace(/^m/i, "")) return true;
-                return false;
+                return itLote === lote || itLote === loteAlt || itLote === `m${loteAlt}` || itLote === `m${lote}`;
             });
             if (byLote.length > 0) filtered = byLote;
         }
 
         if (orden) {
             const byOrden = filtered.filter((it) => {
-                const itOrden =
-                    (((it as any).ordenPn ?? (it as any).orden ?? (it as any).oc ?? "") as string).toString().trim();
+                const itOrden = (((it as any).ordenPn ?? (it as any).orden ?? (it as any).oc ?? "") as string)
+                    .toString()
+                    .trim();
                 return itOrden ? itOrden === orden : false;
             });
             if (byOrden.length > 0) filtered = byOrden;
         }
 
         return filtered;
+    };
+
+    const allItems = useMemo(() => {
+        const list: ItemConteo[] = [];
+        for (const d of detalles) for (const it of d.items) list.push(it);
+        return list;
+    }, [detalles]);
+
+    const knownCodes = useMemo(() => {
+        const set = new Set<string>();
+        for (const it of allItems) {
+            const c = ((it.codigoItem ?? "") as string).toString().trim();
+            if (c) set.add(c);
+            const p = (((it as any).prod ?? "") as string).toString().trim();
+            if (p) set.add(p);
+        }
+        return Array.from(set).sort((a, b) => b.length - a.length);
+    }, [allItems]);
+
+    const resolveByKnownCodes = (raw: string): ParsedScan | null => {
+        const cleaned = norm(raw);
+        if (!cleaned) return null;
+
+        const compact = cleaned.replace(/\s+/g, "");
+        const digits = compact.replace(/\D/g, "");
+
+        let best: string | null = null;
+        let mode: "compact" | "digits" = "compact";
+
+        for (const code of knownCodes) {
+            if (compact.startsWith(code)) {
+                best = code;
+                mode = "compact";
+                break;
+            }
+            if (digits.startsWith(code)) {
+                best = code;
+                mode = "digits";
+                break;
+            }
+        }
+
+        if (!best) return null;
+
+        if (mode === "compact") {
+            const rest = compact.slice(best.length);
+            const m = rest.match(/(\d+(?:[.,]\d+)?)$/);
+            const qty = m?.[1] ?? undefined;
+
+            let lote: string | undefined;
+            let orden: string | undefined;
+            const digitsRest = digits.slice(best.length);
+            if (digitsRest.length >= 12) {
+                lote = digitsRest.slice(0, 6);
+                orden = digitsRest.slice(6, 12);
+            }
+
+            return {
+                raw: cleaned,
+                codigoItem: best,
+                lote,
+                orden,
+                cantidad: qty ? qty.replace(",", ".") : undefined,
+            };
+        }
+
+        const restDigits = digits.slice(best.length);
+        let lote: string | undefined;
+        let orden: string | undefined;
+        let cantidad: string | undefined;
+
+        if (restDigits.length >= 12) {
+            lote = restDigits.slice(0, 6);
+            orden = restDigits.slice(6, 12);
+            cantidad = restDigits.slice(12) || undefined;
+        } else {
+            cantidad = restDigits || undefined;
+        }
+
+        return { raw: cleaned, codigoItem: best, lote, orden, cantidad };
     };
 
     const groupByUbicacion = useMemo(() => {
@@ -167,6 +287,13 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
 
         onSelectItem(item.id);
         onResetBusquedaManual();
+
+        if (onScanApplied) {
+            onScanApplied(item.id, pendingInc);
+            closeModal();
+            return;
+        }
+
         await onSumarCantidad(item.id, pendingInc);
         closeModal();
     };
@@ -182,12 +309,10 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
     };
 
     const procesarCodigo = async (raw: string, incremento: number): Promise<ScanProcessResult> => {
-        const scanned = parseScan(raw);
-        const code = norm(scanned.codigoItem);
-        if (!code) return { handled: true };
-
-        const inc = Number(incremento);
-        if (!Number.isFinite(inc) || inc <= 0) return { handled: true, warn: "La cantidad a sumar debe ser mayor a 0." };
+        const fallbackInc = Number(incremento);
+        if (!Number.isFinite(fallbackInc) || fallbackInc <= 0) {
+            return { handled: true, warn: "La cantidad a sumar debe ser mayor a 0." };
+        }
 
         if (modalOpen) {
             return { handled: true, warn: "Selecciona la ubicación/fila en pantalla." };
@@ -195,18 +320,56 @@ export const useConteoScan = ({ detalles, onSumarCantidad, onSelectItem, onReset
 
         if (detalles.length === 0) return { handled: true };
 
-        const matches = buscarMatches(scanned);
+        const rawClean = raw.replace(/\s+/g, "");
+
+        let cantidadDetectada: number | null = null;
+        let codigoDetectado = rawClean;
+
+        if (rawClean.length >= 19) {
+            const codProd = rawClean.slice(0, 7);
+            const undEstibaStr = rawClean.slice(19);
+
+            const undEstibaNum = Number(undEstibaStr);
+            if (Number.isFinite(undEstibaNum) && undEstibaNum > 0) {
+                codigoDetectado = codProd;
+                cantidadDetectada = undEstibaNum;
+            }
+        }
+
+        let scanned = parseScan(codigoDetectado);
+        let code = norm(scanned.codigoItem);
+        if (!code) return { handled: true };
+
+        let matches = buscarMatches(scanned);
+
+        if (matches.length === 0) {
+            const alt = resolveByKnownCodes(codigoDetectado);
+            if (alt) {
+                scanned = alt;
+                code = norm(scanned.codigoItem);
+                matches = buscarMatches(scanned);
+            }
+        }
+
+        const inc = cantidadDetectada ?? fallbackInc;
+        const hasEmbeddedQty = cantidadDetectada !== null;
 
         if (matches.length === 1) {
             const item = matches[0];
             onSelectItem(item.id);
             onResetBusquedaManual();
+
+            if (hasEmbeddedQty && onScanApplied) {
+                onScanApplied(item.id, inc, { mode: "replace" });
+                return { handled: true };
+            }
+
             await onSumarCantidad(item.id, inc);
             return { handled: true };
         }
 
         if (matches.length > 1) {
-            openModal(matches, inc, buildPendingKey(scanned) || code);
+            openModal(matches, inc, code);
             return { handled: true, info: "Ítem en varias ubicaciones. Selecciona la ubicación." };
         }
 

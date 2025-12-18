@@ -15,6 +15,8 @@ interface Props {
     onOpenChange: (open: boolean) => void;
     onConfirm: () => void;
     loading?: boolean;
+
+    onAfterClose?: () => void; // NUEVO (opcional)
 }
 
 export default function FinalizarConteoDialog({
@@ -22,15 +24,20 @@ export default function FinalizarConteoDialog({
                                                   onOpenChange,
                                                   onConfirm,
                                                   loading,
+                                                  onAfterClose,
                                               }: Props) {
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog
+            open={open}
+            onOpenChange={(v) => {
+                onOpenChange(v);
+                if (!v) onAfterClose?.();
+            }}
+        >
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>¿Finalizar este conteo?</DialogTitle>
-                    <DialogDescription>
-                        Quedará en solo lectura.
-                    </DialogDescription>
+                    <DialogDescription>Quedará en solo lectura.</DialogDescription>
                 </DialogHeader>
 
                 <DialogFooter>

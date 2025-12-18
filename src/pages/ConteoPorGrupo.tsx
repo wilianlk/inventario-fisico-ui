@@ -46,12 +46,19 @@ function ConteoPorGrupo() {
     const didLoadRef = useRef(false);
     const scanTimerRef = useRef<number | null>(null);
 
-    const qtyByIdRef = useRef<Record<number, number>>({});
-    const confirmedByIdRef = useRef<Record<number, number>>({});
+    // Opción B: ahora nullable para no “inventar 0”
+    const qtyByIdRef = useRef<Record<number, number | null>>({});
+    const confirmedByIdRef = useRef<Record<number, number | null>>({});
     const queueByIdRef = useRef<Record<number, Promise<void>>>({});
+
+    // Opción B: tracking de “gestionado”
+    const gestionadoByIdRef = useRef<Record<number, boolean>>({});
 
     const [finalizarOpen, setFinalizarOpen] = useState(false);
     const [finalizando, setFinalizando] = useState(false);
+
+    // Resaltar pendientes SOLO cuando se intenta finalizar
+    const [highlightUnmanaged, setHighlightUnmanaged] = useState(false);
 
     const estadoConteo = useMemo(() => {
         const v = info?.estadoConteo;
@@ -63,26 +70,61 @@ function ConteoPorGrupo() {
         return estadoConteo === "ABIERTO";
     }, [estadoConteo]);
 
-    const rebuildQtyRefs = (lista: ItemConteo[]) => {
-        const map: Record<number, number> = {};
-        for (const it of lista) map[it.id] = it.cantidadContada ?? 0;
-        qtyByIdRef.current = map;
-        confirmedByIdRef.current = { ...map };
+    const isManaged = (id: number) => !!gestionadoByIdRef.current[id];
+
+    const setManaged = (id: number, managed: boolean) => {
+        gestionadoByIdRef.current[id] = managed;
+
+        // si estamos resaltando pendientes y ya no quedan, apagamos el resaltado
+        if (highlightUnmanaged && managed) {
+            const stillMissing = (items || []).some((it) => !gestionadoByIdRef.current[it.id]);
+            if (!stillMissing) setHighlightUnmanaged(false);
+        }
     };
 
-    const setLocalCantidad = (itemId: number, cantidad: number) => {
+    const rebuildQtyRefs = (lista: ItemConteo[]) => {
+        const map: Record<number, number | null> = {};
+        const managed: Record<number, boolean> = {};
+
+        for (const it of lista) {
+            const raw = (it as any).cantidadContada ?? null;
+            const n = raw === null || raw === undefined ? null : Number(raw);
+            const val = Number.isFinite(n as any) ? (n as any) : null;
+
+            map[it.id] = val;
+
+            // Opción B: 0 inicial NO es gestionado hasta que el usuario toque el ítem
+            managed[it.id] = val !== null && val !== undefined && val !== 0;
+        }
+
+        qtyByIdRef.current = map;
+        confirmedByIdRef.current = { ...map };
+        gestionadoByIdRef.current = managed;
+
+        // al recargar, apagamos resaltado
+        setHighlightUnmanaged(false);
+    };
+
+    const setLocalCantidad = (itemId: number, cantidad: number | null) => {
         qtyByIdRef.current[itemId] = cantidad;
-        setItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, cantidadContada: cantidad } : it)));
+
+        setItems((prev) =>
+            prev.map((it) =>
+                it.id === itemId ? ({ ...it, cantidadContada: cantidad as any } as any) : it
+            )
+        );
     };
 
     const enqueuePersist = (itemId: number, cantidad: number) => {
         const prev = queueByIdRef.current[itemId] ?? Promise.resolve();
+
         const next = prev
             .catch(() => undefined)
             .then(async () => {
                 await actualizarCantidadContada(itemId, cantidad);
                 confirmedByIdRef.current[itemId] = cantidad;
             });
+
         queueByIdRef.current[itemId] = next;
         return next;
     };
@@ -105,6 +147,7 @@ function ConteoPorGrupo() {
                 const resp = await obtenerConteoPorGrupo(opId, gId);
                 const data = resp.data;
                 setInfo(data);
+
                 const lista = data.items || [];
                 setItems(lista);
                 rebuildQtyRefs(lista);
@@ -113,12 +156,16 @@ function ConteoPorGrupo() {
                 setItems([]);
                 qtyByIdRef.current = {};
                 confirmedByIdRef.current = {};
+                gestionadoByIdRef.current = {};
+                setHighlightUnmanaged(false);
+
                 const msg =
                     error?.response?.data?.mensaje ||
                     error?.response?.data?.message ||
                     (typeof error?.response?.data === "string" ? error.response.data : null) ||
                     error?.message ||
                     "No se pudo cargar el conteo del grupo.";
+
                 toast.error(String(msg));
             } finally {
                 setLoading(false);
@@ -142,8 +189,10 @@ function ConteoPorGrupo() {
         const n = Number(cantidad);
         const nueva = Number.isFinite(n) ? Math.max(0, n) : 0;
 
-        const prevConfirm = confirmedByIdRef.current[itemId] ?? 0;
+        const prevConfirm = confirmedByIdRef.current[itemId] ?? null;
+
         setLocalCantidad(itemId, nueva);
+        setManaged(itemId, true); // 0 explícito cuenta como gestionado
 
         try {
             await enqueuePersist(itemId, nueva);
@@ -173,17 +222,19 @@ function ConteoPorGrupo() {
         const actual = qtyByIdRef.current[itemId] ?? 0;
         const nueva = Math.max(0, actual + d);
 
-        const prevConfirm = confirmedByIdRef.current[itemId] ?? 0;
+        const prevConfirm = confirmedByIdRef.current[itemId] ?? null;
+
         setLocalCantidad(itemId, nueva);
+        setManaged(itemId, true);
 
         try {
             await enqueuePersist(itemId, nueva);
         } catch (error: any) {
+            console.error(error);
             setLocalCantidad(itemId, prevConfirm);
             const msg =
                 error?.response?.data?.mensaje ||
                 error?.response?.data?.message ||
-                (typeof error?.response?.data === "string" ? error.response.data : null) ||
                 error?.message ||
                 "No se pudo guardar la cantidad contada.";
             toast.error(String(msg));
@@ -240,7 +291,14 @@ function ConteoPorGrupo() {
         } finally {
             scanValueRef.current = "";
             setScanValue("");
-            scanInputRef.current?.focus();
+
+            // ✅ Ajuste: forzar retorno al input del escáner (gana sobre focus internos)
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    scanInputRef.current?.focus();
+                    scanInputRef.current?.select();
+                }, 0);
+            });
         }
     };
 
@@ -273,15 +331,47 @@ function ConteoPorGrupo() {
         };
     }, [scanValue, editable]);
 
+    const pendientes = useMemo(() => {
+        return (items || []).filter((it) => !isManaged(it.id));
+    }, [items, highlightUnmanaged]);
+
+    const intentarFinalizar = () => {
+        if (!editable) {
+            toast.info("Conteo cerrado. Solo lectura.");
+            return;
+        }
+        if (!info?.conteoId) return;
+        if (finalizando) return;
+
+        const p = (items || []).filter((it) => !isManaged(it.id));
+        if (p.length > 0) {
+            setHighlightUnmanaged(true);
+            toast.warn(`No puedes finalizar: faltan ${p.length} ítem(s) por gestionar.`);
+            return;
+        }
+
+        setHighlightUnmanaged(false);
+        setFinalizarOpen(true);
+    };
+
     const confirmarFinalizar = async () => {
         if (!info?.conteoId || !editable || finalizando) return;
+
+        const p = (items || []).filter((it) => !isManaged(it.id));
+        if (p.length > 0) {
+            setHighlightUnmanaged(true);
+            toast.warn(`No puedes finalizar: faltan ${p.length} ítem(s) por gestionar.`);
+            setFinalizarOpen(false);
+            return;
+        }
 
         setFinalizando(true);
         try {
             await finalizarConteo(info.conteoId);
-            setInfo((p) => (p ? { ...p, estadoConteo: "CERRADO" } : p));
+            setInfo((prev) => (prev ? { ...prev, estadoConteo: "CERRADO" } : prev));
             toast.success("Conteo cerrado correctamente.");
             setFinalizarOpen(false);
+            setHighlightUnmanaged(false);
         } catch (error: any) {
             const msg =
                 error?.response?.data?.mensaje ||
@@ -316,7 +406,9 @@ function ConteoPorGrupo() {
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div className="flex-1 md:max-w-xl space-y-1">
-                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">Escáner (Código ítem)</div>
+                        <div className="text-[11px] sm:text-xs font-medium text-slate-700">
+                            Escáner (código / etiqueta)
+                        </div>
 
                         <Input
                             ref={scanInputRef}
@@ -339,7 +431,7 @@ function ConteoPorGrupo() {
                                 const v = (e.currentTarget.value || "").trim();
                                 void procesarScan(v);
                             }}
-                            placeholder="Escanea Código ítem"
+                            placeholder="Escanea el código"
                             className="text-xs sm:text-sm"
                             autoComplete="off"
                         />
@@ -349,7 +441,7 @@ function ConteoPorGrupo() {
                         <Button
                             type="button"
                             size="sm"
-                            onClick={() => setFinalizarOpen(true)}
+                            onClick={intentarFinalizar}
                             disabled={!editable || !info?.conteoId || finalizando}
                             className="text-xs sm:text-sm w-full"
                         >
@@ -437,11 +529,17 @@ function ConteoPorGrupo() {
                 selectedItemId={selectedItemId}
                 searchFilters={searchFilters}
                 editable={editable}
+                isManaged={isManaged}
+                onSetManaged={setManaged}
+                highlightUnmanaged={highlightUnmanaged}
             />
 
             <FinalizarConteoDialog
                 open={finalizarOpen}
-                onOpenChange={setFinalizarOpen}
+                onOpenChange={(v) => {
+                    if (finalizando) return;
+                    setFinalizarOpen(v);
+                }}
                 onConfirm={() => void confirmarFinalizar()}
                 loading={finalizando}
             />
