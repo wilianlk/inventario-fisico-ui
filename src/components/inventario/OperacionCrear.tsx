@@ -1,4 +1,4 @@
-import { useMemo, useState, ChangeEvent } from "react";
+import { useMemo, useState, ChangeEvent, useEffect } from "react";
 import { toast } from "react-toastify";
 
 import { crearOperacion, CrearOperacionRequest } from "@/services/inventarioService";
@@ -13,6 +13,7 @@ interface ErroresForm {
 interface OperacionCrearProps {
     gruposDisponibles: GrupoConteo[];
     onCreated: () => void;
+    conteoForzado?: number; // <-- EXCEPCIÓN: si viene (ej 3), se fuerza
 }
 
 type EnlaceGrupo = {
@@ -27,13 +28,16 @@ type EnlacesOperacion = {
     enlaces: EnlaceGrupo[];
 };
 
-const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) => {
+const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: OperacionCrearProps) => {
+    const conteoForzadoValido =
+        typeof conteoForzado === "number" && Number.isFinite(conteoForzado) ? Number(conteoForzado) : null;
+
     const [form, setForm] = useState<CrearOperacionRequest>({
         bodega: "11",
         fecha: "",
         observaciones: "",
         usuarioCreacion: "WILLIAM",
-        numeroConteo: 1,
+        numeroConteo: conteoForzadoValido ?? 1,
         gruposIds: [],
     });
 
@@ -41,12 +45,29 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
     const [loading, setLoading] = useState(false);
     const [enlacesOperacion, setEnlacesOperacion] = useState<EnlacesOperacion | null>(null);
 
+    // Si el componente se monta con conteoForzado (ej al abrir modal), fuerza el conteo en el form.
+    useEffect(() => {
+        if (conteoForzadoValido == null) return;
+        setForm((prev) => ({
+            ...prev,
+            bodega: "11",
+            numeroConteo: conteoForzadoValido,
+        }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conteoForzadoValido]);
+
     const canCreate = useMemo(() => {
         const hasFecha = !!form.fecha;
-        const conteoOk = !!form.numeroConteo && [1, 2].includes(form.numeroConteo);
+
+        const conteoOk =
+            conteoForzadoValido != null
+                ? Number(form.numeroConteo) === Number(conteoForzadoValido)
+                : !!form.numeroConteo && [1, 2, 3].includes(Number(form.numeroConteo));
+
         const hasGrupos = Array.isArray(form.gruposIds) && form.gruposIds.length > 0;
+
         return hasFecha && conteoOk && hasGrupos && !loading;
-    }, [form.fecha, form.numeroConteo, form.gruposIds, loading]);
+    }, [form.fecha, form.numeroConteo, form.gruposIds, loading, conteoForzadoValido]);
 
     const gruposWarning =
         !Array.isArray(form.gruposIds) || form.gruposIds.length === 0
@@ -68,11 +89,16 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
         setForm((prev) => ({
             ...prev,
             bodega: "11",
+            // si viene conteo forzado, no permitimos que lo cambien por un input accidental
+            numeroConteo: conteoForzadoValido ?? prev.numeroConteo,
             [name]: value,
         }));
     };
 
     const handleNumeroConteoChange = (e: ChangeEvent<HTMLSelectElement>) => {
+        // En modo excepción (conteo forzado) NO se permite cambiar.
+        if (conteoForzadoValido != null) return;
+
         const valor = Number(e.target.value) || 1;
         setForm((prev) => ({
             ...prev,
@@ -115,8 +141,19 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
             return;
         }
 
-        if (!form.numeroConteo || ![1, 2].includes(form.numeroConteo)) {
-            toast.warning("Debes seleccionar un número de conteo válido (1 o 2).");
+        // Validación de conteo:
+        // - normal: 1 o 2
+        // - excepción: exactamente el forzado (ej 3)
+        const nConteo = Number(form.numeroConteo);
+        const conteoValido =
+            conteoForzadoValido != null ? nConteo === Number(conteoForzadoValido) : [1, 2, 3].includes(nConteo);
+
+        if (!conteoValido) {
+            if (conteoForzadoValido != null) {
+                toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creación.`);
+            } else {
+                toast.warning("Debes seleccionar un número de conteo válido (1 o 2).");
+            }
             return;
         }
 
@@ -130,7 +167,14 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
         try {
             setLoading(true);
 
-            const res: any = await crearOperacion({ ...form, bodega: "11" });
+            const payload: CrearOperacionRequest = {
+                ...form,
+                bodega: "11",
+                numeroConteo: conteoForzadoValido ?? nConteo,
+                gruposIds: gruposSeleccionados,
+            };
+
+            const res: any = await crearOperacion(payload);
 
             const operacionId =
                 Number(res?.id) ||
@@ -153,7 +197,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
 
                 setEnlacesOperacion({
                     operacionId,
-                    numeroConteo: form.numeroConteo || 1,
+                    numeroConteo: payload.numeroConteo || 1,
                     enlaces,
                 });
             } else {
@@ -165,7 +209,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
                 ...prev,
                 bodega: "11",
                 observaciones: "",
-                numeroConteo: 1,
+                numeroConteo: conteoForzadoValido ?? 1,
                 gruposIds: [],
             }));
             setErrores({});
@@ -197,6 +241,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated }: OperacionCrearProps) =
                 gruposDisponibles={gruposDisponibles}
                 onToggleGrupo={toggleGrupo}
                 onNumeroConteoChange={handleNumeroConteoChange}
+                conteoForzado={conteoForzadoValido ?? undefined}
                 onCrear={handleCrear}
                 loading={!canCreate}
                 errores={errores}

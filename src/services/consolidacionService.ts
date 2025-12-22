@@ -1,28 +1,50 @@
 import api from "./api";
 import type { AxiosResponse } from "axios";
 
-export interface Consolidado {
+export interface ConteoFinalizadoItem {
+    id: number;
     operacionId: number;
-    codigoProducto: string;
-    descripcion: string;
-    lote: string;
+    grupoId: number;
+    conteoId: number;
+    codigoItem: string;
+    descripcion?: string;
+    udm?: string;
+    etiqueta?: string;
+    lote?: string;
+    costo?: number;
+    cantidadSistema?: number;
+    cantidadContada?: number;
     ubicacion: string;
-    cantidadConteo1: number;
-    cantidadConteo2: number;
-    cantidadConteo3: number;
-    cantidadFinal: number | null;
-    estado: string;
-    usuarioAprobacion: string;
-    fechaAprobacion: string;
 }
 
-export const obtenerConsolidado = (operacionId: number) =>
-    api.get<Consolidado[]>(`/consolidacion/${operacionId}`);
+export interface ConteoFinalizado {
+    conteo: {
+        id: number;
+        operacionId: number;
+        grupoId: number;
+        numeroConteo: number;
+        estado: string;
+        fechaCreacion: string;
+        nombreGrupo?: string;
+    };
+    items: ConteoFinalizadoItem[];
+}
 
-export const aprobarReconteo = (data: Consolidado) =>
-    api.post("/consolidacion/aprobar-reconteo", data);
+export interface ConsolidacionCierre {
+    operacionIds: number[];
+    operacionesFinalizadas: number[];
+}
+
+export const obtenerConteosFinalizados = () =>
+    api.get<ConteoFinalizado[]>(`/consolidacion/conteos-finalizados`);
+
+export const finalizarOperaciones = (data: ConsolidacionCierre) =>
+    api.post<ConsolidacionCierre>(`/consolidacion/finalizar`, data);
 
 export const generarDI81 = (operacionId: number) =>
     api.post<Blob>(`/consolidacion/generar-di81/${operacionId}`, null, {
         responseType: "blob",
     }) as Promise<AxiosResponse<Blob>>;
+
+export const consolidacionFinalizada = (operacionId: number) =>
+    api.get<boolean>(`/consolidacion/consolidacion-finalizada/${operacionId}`);

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
-import { obtenerConteoActual, DetalleConteo } from "@/services/conteoService";
-import { cerrarOperacion } from "@/services/inventarioService";
-import { generarDI81 } from "@/services/consolidacionService";
+import { DetalleConteo } from "@/services/conteoService";
+import {
+    generarDI81,
+    obtenerConteosFinalizados,
+    consolidacionFinalizada,
+    finalizarOperaciones,
+} from "@/services/consolidacionService";
 import ConsolidacionFilters from "@/components/consolidacion/ConsolidacionFilters";
 import ConsolidacionTable from "@/components/consolidacion/ConsolidacionTable";
 import { applyFilters, buildConsolidado, ConsolidacionFilters as FType } from "@/hooks/consolidacion.logic";
@@ -69,21 +73,101 @@ const Consolidacion = () => {
     const [openFinalizar, setOpenFinalizar] = useState(false);
     const [finalizando, setFinalizando] = useState(false);
 
+    const [finalizada, setFinalizada] = useState(false);
+    const [validandoEstado, setValidandoEstado] = useState(false);
+
+    const didInit = useRef(false);
+
+    const mapConteosFinalizadosToDetalle = (data: any[]): DetalleConteo[] => {
+        return (data ?? []).map((x: any) => {
+            const conteo = x?.conteo ?? x?.Conteo ?? {};
+            const items = x?.items ?? x?.Items ?? [];
+
+            const grupoNombre = conteo?.nombreGrupo ?? conteo?.NombreGrupo ?? "";
+
+            return {
+                operacionId: Number(conteo?.operacionId ?? conteo?.OperacionId ?? 0),
+                grupoId: Number(conteo?.grupoId ?? conteo?.GrupoId ?? 0),
+                grupo: String(grupoNombre ?? "").trim(),
+                conteoId: Number(conteo?.id ?? conteo?.Id ?? 0),
+                numeroConteo: Number(conteo?.numeroConteo ?? conteo?.NumeroConteo ?? 0),
+                estadoConteo: String(conteo?.estado ?? conteo?.Estado ?? "").trim(),
+                items: Array.isArray(items) ? items : [],
+            } as any;
+        });
+    };
+
+    const getOperacionIdsFrom = (arr: any[]): number[] => {
+        const ids = new Set<number>();
+        for (const d of arr as any[]) {
+            const id = d?.operacionId ?? d?.OperacionId;
+            const n = id !== null && id !== undefined ? Number(id) : 0;
+            if (Number.isFinite(n) && n > 0) ids.add(n);
+        }
+        return Array.from(ids);
+    };
+
+    const getOperacionIds = (): number[] => getOperacionIdsFrom(detalles as any[]);
+
+    const descargarBlob = (blob: Blob, filename: string) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    };
+
+    const nombreDesdeHeaders = (headers: any, fallback: string) => {
+        const cd = headers?.["content-disposition"] || headers?.["Content-Disposition"] || "";
+        const match = String(cd).match(/filename="?([^"]+)"?/i);
+        return match?.[1] || fallback;
+    };
+
+    const validarFinalizada = async (operacionId: number): Promise<boolean> => {
+        try {
+            const resp = await consolidacionFinalizada(operacionId);
+            return Boolean((resp.data as any)?.finalizada);
+        } catch (e) {
+            console.error(e);
+            toast.error(`No se pudo validar el estado de la consolidación (operación ${operacionId}).`);
+            return false;
+        }
+    };
+
     const cargar = async () => {
         setLoading(true);
         try {
-            const resp = await obtenerConteoActual();
-            setDetalles(resp.data ?? []);
+            const resp = await obtenerConteosFinalizados();
+            const data = (resp.data as any[]) ?? [];
+            const mapped = mapConteosFinalizadosToDetalle(data);
+            setDetalles(mapped);
+
+            const ids = getOperacionIdsFrom(mapped as any[]);
+            if (ids.length === 1) {
+                setValidandoEstado(true);
+                const ok = await validarFinalizada(ids[0]);
+                setFinalizada(ok);
+                setValidandoEstado(false);
+            } else {
+                setFinalizada(false);
+            }
         } catch (e) {
             console.error(e);
             toast.error("No se pudo cargar la consolidación.");
             setDetalles([]);
+            setFinalizada(false);
         } finally {
             setLoading(false);
+            setValidandoEstado(false);
         }
     };
 
     useEffect(() => {
+        if (didInit.current) return;
+        didInit.current = true;
         void cargar();
     }, []);
 
@@ -114,37 +198,10 @@ const Consolidacion = () => {
         });
     };
 
-    const getOperacionId = (): number | null => {
-        const id = (detalles as any[])[0]?.operacionId;
-        return id !== null && id !== undefined ? Number(id) : null;
-    };
-
-    const esYaCerrada = (msg: string) => {
-        const m = (msg || "").toLowerCase();
-        return m.includes("cerrad") && m.includes("ya");
-    };
-
-    const descargarBlob = (blob: Blob, filename: string) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-    };
-
-    const nombreDesdeHeaders = (headers: any, fallback: string) => {
-        const cd = headers?.["content-disposition"] || headers?.["Content-Disposition"] || "";
-        const match = String(cd).match(/filename="?([^"]+)"?/i);
-        return match?.[1] || fallback;
-    };
-
     const finalizar = async () => {
-        const operacionId = getOperacionId();
+        const operacionIds = getOperacionIds();
 
-        if (!operacionId) {
+        if (operacionIds.length === 0) {
             toast.error("No hay operación cargada para finalizar.");
             return;
         }
@@ -152,25 +209,61 @@ const Consolidacion = () => {
         try {
             setFinalizando(true);
 
-            try {
-                await cerrarOperacion(operacionId);
-            } catch (e: any) {
-                const msg = e?.response?.data?.mensaje || e?.message || "Error al cerrar la operación.";
-                if (!esYaCerrada(msg)) throw e;
+            const resp = await finalizarOperaciones({
+                operacionIds,
+                operacionesFinalizadas: [],
+            });
+
+            const fin = (resp?.data as any)?.operacionesFinalizadas ?? [];
+
+            if (Array.isArray(fin) && fin.length > 0) {
+                toast.success(
+                    fin.length === 1
+                        ? "Consolidación finalizada."
+                        : `Consolidación finalizada. Operaciones: ${fin.length}.`
+                );
+                setOpenFinalizar(false);
+                void cargar();
+            } else {
+                toast.error("No se pudo finalizar la consolidación.");
             }
-
-            const resp = await generarDI81(operacionId);
-            const filename = nombreDesdeHeaders(resp.headers, `DI81_${operacionId}.txt`);
-            descargarBlob(resp.data, filename);
-
-            toast.success("Inventario finalizado. Archivo DI81 generado.");
-            setOpenFinalizar(false);
-            void cargar();
         } catch (e: any) {
-            const msg = e?.response?.data?.mensaje || e?.message || "Error inesperado.";
+            const msg = e?.response?.data?.mensaje || e?.message || "No se pudo finalizar la consolidación.";
             toast.error(msg);
         } finally {
             setFinalizando(false);
+        }
+    };
+
+    const generarArchivo = async () => {
+        const operacionIds = getOperacionIds();
+
+        if (operacionIds.length === 0) {
+            toast.error("No hay operación cargada.");
+            return;
+        }
+
+        if (operacionIds.length !== 1) {
+            toast.error("Solo se puede generar el archivo cuando hay una sola operación cargada.");
+            return;
+        }
+
+        const operacionId = operacionIds[0];
+
+        if (!finalizada) {
+            toast.error(
+                `Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`
+            );
+            return;
+        }
+
+        try {
+            const resp = await generarDI81(operacionId);
+            const filename = nombreDesdeHeaders(resp.headers, `DI81_${operacionId}.txt`);
+            descargarBlob(resp.data, filename);
+        } catch (e: any) {
+            const msg = e?.response?.data?.mensaje || e?.message || "No se pudo generar el archivo.";
+            toast.error(msg);
         }
     };
 
@@ -192,22 +285,30 @@ const Consolidacion = () => {
                 />
             </header>
 
-            <div className="flex justify-end px-4 sm:px-6">
-                <div className="mx-auto max-w-[1700px] w-full flex justify-end">
-                    <button
-                        type="button"
-                        className="px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
-                        onClick={() => {
-                            const operacionId = getOperacionId();
-                            if (!operacionId) {
-                                toast.error("No hay operación cargada para finalizar.");
-                                return;
-                            }
-                            setOpenFinalizar(true);
-                        }}
-                    >
-                        Finalizar
-                    </button>
+            <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
+                <div className="px-4 sm:px-6">
+                    <div className="mx-auto max-w-[1700px] w-full flex justify-end">
+                        <button
+                            type="button"
+                            className="px-4 py-2 rounded-md bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60"
+                            disabled={loading || finalizando || validandoEstado}
+                            onClick={() => {
+                                const ids = getOperacionIds();
+                                if (ids.length === 0) {
+                                    toast.error("No hay operación cargada.");
+                                    return;
+                                }
+
+                                if (finalizada) {
+                                    void generarArchivo();
+                                } else {
+                                    setOpenFinalizar(true);
+                                }
+                            }}
+                        >
+                            {validandoEstado ? "Validando..." : finalizada ? "Generar archivo" : "Finalizar"}
+                        </button>
+                    </div>
                 </div>
             </div>
 

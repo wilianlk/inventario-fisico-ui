@@ -147,8 +147,8 @@ const Operaciones = () => {
             return;
         }
 
-        if (!op.numeroConteo || ![1, 2].includes(op.numeroConteo)) {
-            toast.warning("El número de conteo inicial no es válido (debe ser 1 o 2).");
+        if (!op.numeroConteo || ![1, 2, 3].includes(op.numeroConteo)) {
+            toast.warning("El número de conteo inicial no es válido (debe ser 1, 2 o 3).");
             return;
         }
 

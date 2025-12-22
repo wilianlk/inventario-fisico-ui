@@ -16,6 +16,7 @@ interface OperacionFormProps {
     gruposDisponibles: GrupoConteo[];
     onToggleGrupo: (grupoId: number, checked: boolean) => void;
     onNumeroConteoChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+    conteoForzado?: number;
     onCrear: () => void;
     loading: boolean;
     errores?: ErroresForm;
@@ -27,6 +28,7 @@ const OperacionForm = ({
                            gruposDisponibles,
                            onToggleGrupo,
                            onNumeroConteoChange,
+                           conteoForzado,
                            onCrear,
                            loading,
                            errores = {},
@@ -57,14 +59,20 @@ const OperacionForm = ({
 
                 <div className="space-y-1">
                     <label className="text-xs font-medium text-slate-600">Número de conteo *</label>
-                    <select
-                        className="border rounded px-2 py-1 text-sm w-full"
-                        value={form.numeroConteo}
-                        onChange={onNumeroConteoChange}
-                    >
-                        <option value={1}>Conteo 1</option>
-                        <option value={2}>Conteo 2</option>
-                    </select>
+
+                    {typeof conteoForzado === "number" && Number.isFinite(conteoForzado) ? (
+                        <Input value={`Conteo ${conteoForzado}`} disabled />
+                    ) : (
+                        <select
+                            className="border rounded px-2 py-1 text-sm w-full"
+                            value={form.numeroConteo}
+                            onChange={onNumeroConteoChange}
+                        >
+                            <option value={1}>Conteo 1</option>
+                            <option value={2}>Conteo 2</option>
+                            <option value={3}>Conteo 3</option>
+                        </select>
+                    )}
                 </div>
 
                 <div className="space-y-1 md:col-span-1">

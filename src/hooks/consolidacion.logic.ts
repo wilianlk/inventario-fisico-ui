@@ -16,33 +16,17 @@ export type ConsolidadoRow = {
     congelada: number | null;
 
     grupoC1: string;
-    conteo1: number | null;
-
     grupoC2: string;
-    conteo2: number | null;
-
     grupoC3: string;
+
+    conteo1: number | null;
+    conteo2: number | null;
     conteo3: number | null;
 
     ok12: boolean | null;
     reconteoTexto: "OK !" | "Recontar" | "";
 
     capturaFinal: number | null;
-};
-
-export const calcularCapturaFinal = (
-    conteo1: number | null,
-    conteo2: number | null,
-    conteo3: number | null
-): number | null => {
-    // Conteo 3 siempre tiene prioridad (ya sea automático o ajustado por el usuario)
-    if (conteo3 !== null) return conteo3;
-
-    // Si no hay conteo 3, y Conteo 1 = Conteo 2, se toma ese valor
-    if (conteo1 !== null && conteo2 !== null && conteo1 === conteo2) return conteo1;
-
-    // Si 1 y 2 difieren y no hay 3, queda pendiente
-    return null;
 };
 
 export type ConsolidacionFilters = {
@@ -57,7 +41,7 @@ export type ConsolidacionFilters = {
     soloRecontar: boolean;
 };
 
-const norm = (s: unknown) => String(s ?? "").trim();
+const norm = (v: unknown) => String(v ?? "").trim();
 
 const toNumOrNull = (v: unknown): number | null => {
     if (v === null || v === undefined || v === "") return null;
@@ -74,22 +58,6 @@ const getCosto = (it: unknown) => {
 };
 
 const getCongelada = (it: unknown) => toNumOrNull((it as any)?.cantidadSistema);
-
-const getItemFromDetalle = (d: DetalleConteo): ItemConteo | null => {
-    const items = (d as any)?.items as unknown;
-    if (!Array.isArray(items) || items.length === 0) return null;
-    return items[0] as any;
-};
-
-const getConteo = (d: DetalleConteo): ConteoSlot => {
-    const n = Number((d as any)?.conteoNumero);
-    if (n === 1 || n === 2 || n === 3) return n;
-    const fallback = Number((d as any)?.numeroConteo);
-    if (fallback === 1 || fallback === 2 || fallback === 3) return fallback as ConteoSlot;
-    return 1;
-};
-
-const getGrupoNombre = (d: DetalleConteo) => norm((d as any)?.grupoNombre || (d as any)?.grupo || (d as any)?.grupoConteo);
 
 const mergeIfEmpty = (current: string, next: string) => (current ? current : next);
 
@@ -111,73 +79,73 @@ const mergeGroup = (current: string, next: string) => {
 export const buildConsolidado = (detalles: DetalleConteo[]): ConsolidadoRow[] => {
     const map = new Map<string, ConsolidadoRow>();
 
-    for (const d of detalles) {
-        const nConteo = getConteo(d);
-        const grupoNombre = getGrupoNombre(d);
+    for (const det of detalles) {
+        const nConteo = det.numeroConteo as ConteoSlot;
+        const grupoNombre = norm((det as any).grupo);
 
-        const it = getItemFromDetalle(d);
-        if (!it) continue;
+        for (const it of det.items as ItemConteo[]) {
+            const codigo = norm((it as any).codigoItem);
+            const ubic = norm((it as any).ubicacion);
+            const lote = getLote(it);
+            if (!codigo || !ubic) continue;
 
-        const etiqueta = getEtiqueta(it);
-        const codigo = norm((it as any)?.codigoItem);
-        const desc = norm((it as any)?.descripcion);
-        const udm = norm((it as any)?.udm);
-        const ubic = norm((it as any)?.ubicacion);
-        const lote = getLote(it);
+            const loteKey = lote ? lote : "__SIN_LOTE__";
+            const key = `${ubic}||${codigo}||${loteKey}`;
 
-        const costo = getCosto(it);
-        const congelada = getCongelada(it);
-        const qty = toNumOrNull((it as any)?.cantidad);
+            const etiqueta = getEtiqueta(it);
+            const costo = getCosto(it);
+            const congelada = getCongelada(it);
 
-        const key = `${etiqueta}__${codigo}__${ubic}__${lote}`;
+            const qty = toNumOrNull((it as any).cantidadContada);
+            const desc = norm((it as any).descripcion);
+            const udm = norm((it as any).udm);
 
-        let row = map.get(key);
-        if (!row) {
-            row = {
-                key,
+            let row = map.get(key);
+            if (!row) {
+                row = {
+                    key,
+                    etiqueta,
+                    codigoItem: codigo,
+                    descripcion: desc,
+                    udm,
+                    ubicacion: ubic,
+                    lote,
+                    costoUnitario: costo,
 
-                etiqueta,
-                codigoItem: codigo,
-                descripcion: desc,
-                udm,
-                ubicacion: ubic,
-                lote,
-                costoUnitario: costo,
+                    congelada,
 
-                congelada,
+                    grupoC1: "",
+                    grupoC2: "",
+                    grupoC3: "",
 
-                grupoC1: "",
-                conteo1: null,
+                    conteo1: null,
+                    conteo2: null,
+                    conteo3: null,
 
-                grupoC2: "",
-                conteo2: null,
+                    ok12: null,
+                    reconteoTexto: "",
 
-                grupoC3: "",
-                conteo3: null,
+                    capturaFinal: null,
+                };
+                map.set(key, row);
+            } else {
+                row.etiqueta = mergeIfEmpty(row.etiqueta, etiqueta);
+                row.descripcion = mergeIfEmpty(row.descripcion, desc);
+                row.udm = mergeIfEmpty(row.udm, udm);
+                if (row.costoUnitario === null && costo !== null) row.costoUnitario = costo;
+                if (row.congelada === null && congelada !== null) row.congelada = congelada;
+            }
 
-                ok12: null,
-                reconteoTexto: "",
-
-                capturaFinal: null,
-            };
-            map.set(key, row);
-        } else {
-            row.etiqueta = mergeIfEmpty(row.etiqueta, etiqueta);
-            row.descripcion = mergeIfEmpty(row.descripcion, desc);
-            row.udm = mergeIfEmpty(row.udm, udm);
-            if (row.costoUnitario === null && costo !== null) row.costoUnitario = costo;
-            if (row.congelada === null && congelada !== null) row.congelada = congelada;
-        }
-
-        if (nConteo === 1) {
-            row.conteo1 = qty;
-            row.grupoC1 = mergeGroup(row.grupoC1, grupoNombre);
-        } else if (nConteo === 2) {
-            row.conteo2 = qty;
-            row.grupoC2 = mergeGroup(row.grupoC2, grupoNombre);
-        } else if (nConteo === 3) {
-            row.conteo3 = qty;
-            row.grupoC3 = mergeGroup(row.grupoC3, grupoNombre);
+            if (nConteo === 1) {
+                row.conteo1 = qty;
+                row.grupoC1 = mergeGroup(row.grupoC1, grupoNombre);
+            } else if (nConteo === 2) {
+                row.conteo2 = qty;
+                row.grupoC2 = mergeGroup(row.grupoC2, grupoNombre);
+            } else if (nConteo === 3) {
+                row.conteo3 = qty;
+                row.grupoC3 = mergeGroup(row.grupoC3, grupoNombre);
+            }
         }
     }
 
@@ -187,15 +155,16 @@ export const buildConsolidado = (detalles: DetalleConteo[]): ConsolidadoRow[] =>
         if (r.conteo1 === null || r.conteo2 === null) {
             r.ok12 = null;
             r.reconteoTexto = "";
+            r.capturaFinal = null;
         } else if (r.conteo1 === r.conteo2) {
             r.ok12 = true;
             r.reconteoTexto = "OK !";
+            r.capturaFinal = r.conteo2;
         } else {
             r.ok12 = false;
             r.reconteoTexto = "Recontar";
+            r.capturaFinal = r.conteo3 !== null ? r.conteo3 : null;
         }
-
-        r.capturaFinal = calcularCapturaFinal(r.conteo1, r.conteo2, r.conteo3);
     }
 
     out.sort(
