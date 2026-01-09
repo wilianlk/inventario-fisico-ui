@@ -20,6 +20,13 @@ export interface CrearOperacionRequest {
     gruposIds: number[];
 }
 
+export interface AvanceOperacion {
+    operacionId: number;
+    totalItems: number;
+    itemsContados: number;
+    porcentaje: number;
+}
+
 export const obtenerOperaciones = () =>
     api.get<Operacion[]>("/inventario");
 
@@ -34,3 +41,6 @@ export const cerrarOperacion = (id: number) =>
 
 export const eliminarOperacion = (id: number) =>
     api.delete(`/inventario/eliminar/${id}`);
+
+export const obtenerAvanceOperacion = (operacionId: number) =>
+    api.get<AvanceOperacion>(`/inventario/avance/${operacionId}`);

@@ -119,49 +119,55 @@ export default function ConteoTableDesktopTable({
                                 <TableCell className={`min-w-[460px] ${cellWarnRight}`}>
                                     <div className="flex items-center gap-2">
                                         <Input
-                                            type="number"
-                                            step="any"
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
                                             className="h-8 w-20 text-xs"
                                             placeholder="Unid"
                                             value={p.unidades}
                                             onChange={(e) => setManualField(item, "unidades", e.target.value)}
-                                            min={0}
                                             disabled={disabled}
                                         />
                                         <div className="text-xs text-slate-500 font-mono">x</div>
                                         <Input
-                                            type="number"
-                                            step="any"
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
                                             className="h-8 w-20 text-xs"
                                             placeholder="Paq"
                                             value={p.paquetes}
                                             onChange={(e) => setManualField(item, "paquetes", e.target.value)}
-                                            min={0}
                                             disabled={disabled}
                                         />
                                         <div className="text-xs text-slate-500 font-mono">+</div>
                                         <Input
-                                            type="number"
-                                            step="any"
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
                                             className="h-8 w-20 text-xs"
                                             placeholder="Saldos"
                                             value={p.saldos}
                                             onChange={(e) => setManualField(item, "saldos", e.target.value)}
-                                            min={0}
                                             disabled={disabled}
                                         />
                                         <div className="text-xs text-slate-500 font-mono">=</div>
 
                                         <Input
-                                            type="number"
-                                            step="any"
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
                                             className="h-8 w-24 text-xs font-mono"
                                             placeholder="Total"
-                                            value={anyManualFilled(p) ? (totalDisplay === null ? "" : String(totalDisplay)) : p.total}
+                                            value={
+                                                anyManualFilled(p)
+                                                    ? totalDisplay === null
+                                                        ? ""
+                                                        : String(totalDisplay)
+                                                    : p.total
+                                            }
                                             onChange={(e) => setTotalField(item, e.target.value)}
                                             onKeyDown={(e) => handleKeyDownTotal(e, item)}
                                             onBlur={() => onBlurTotal(item)}
-                                            min={0}
                                             disabled={disabled}
                                             ref={(el) => setTotalRef(item.id, el)}
                                         />

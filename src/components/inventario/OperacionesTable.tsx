@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
-import { Operacion } from "@/services/inventarioService";
+import { Operacion, obtenerAvanceOperacion } from "@/services/inventarioService";
 import { GrupoConteo, getGruposPorOperacion } from "@/services/grupoConteoService";
 
 import {
@@ -58,12 +58,53 @@ const OperacionesTable = ({
     const [loadingEnlaces, setLoadingEnlaces] = useState(false);
     const [enlaces, setEnlaces] = useState<EnlaceGrupo[]>([]);
 
+    const [avancePorOperacion, setAvancePorOperacion] = useState<Record<number, number>>({});
+
     const origin = useMemo(() => {
         const fromEnv = (import.meta as any).env?.VITE_PUBLIC_APP_URL;
         const fromStorage = localStorage.getItem("PUBLIC_APP_URL");
         const raw = fromEnv || fromStorage || window.location.origin;
         return String(raw).replace(/\/+$/, "");
     }, []);
+
+    useEffect(() => {
+        if (loading) return;
+        if (!ops.length) {
+            setAvancePorOperacion({});
+            return;
+        }
+
+        let cancelado = false;
+
+        (async () => {
+            try {
+                const ids = ops.map((o) => o.id).filter((id) => Number.isFinite(id) && id > 0);
+                const resultados = await Promise.all(
+                    ids.map(async (id) => {
+                        try {
+                            const r = await obtenerAvanceOperacion(id);
+                            return [id, r.data?.porcentaje ?? 0] as const;
+                        } catch {
+                            return [id, 0] as const;
+                        }
+                    })
+                );
+
+                if (cancelado) return;
+
+                const map: Record<number, number> = {};
+                for (const [id, porcentaje] of resultados) map[id] = porcentaje;
+
+                setAvancePorOperacion(map);
+            } catch {
+                if (!cancelado) toast.error("No se pudo cargar el avance.");
+            }
+        })();
+
+        return () => {
+            cancelado = true;
+        };
+    }, [loading, operaciones]);
 
     const copiar = async (texto: string) => {
         try {
@@ -161,7 +202,11 @@ const OperacionesTable = ({
 
                                                 <TableBody>
                                                     {lista.map((op) => {
-                                                        const avanceRaw = op.porcentajeAvance ?? 0;
+                                                        const avanceRaw =
+                                                            avancePorOperacion[op.id] ??
+                                                            op.porcentajeAvance ??
+                                                            0;
+
                                                         const avance = Math.max(
                                                             0,
                                                             Math.min(

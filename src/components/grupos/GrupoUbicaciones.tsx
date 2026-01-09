@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { GrupoConteo } from "@/services/grupoConteoService";
 import {
-    getUbicacionesPorGrupo,
-    eliminarUbicacion,
-    ItemConUbicacion,
+    eliminarFiltro,
+    obtenerItemsPorGrupo,
+    type FiltroGrupoUbicacion,
+    type ItemPhystag,
 } from "@/services/grupoUbicacionService";
 import {
     Dialog,
@@ -32,70 +33,157 @@ interface GrupoUbicacionesProps {
     onClose: () => void;
 }
 
-export interface UbicacionConItems {
-    ubicacion: {
-        id: number;
-        grupoId: number;
-        ubicacion: string;
-    };
-    items: ItemConUbicacion[];
-}
+type DupMode = "" | "UI" | "UIL"; // "" = sin criterio
 
 export function GrupoUbicaciones({ open, grupo, onClose }: GrupoUbicacionesProps) {
-    const [ubicaciones, setUbicaciones] = useState<UbicacionConItems[]>([]);
+    const [items, setItems] = useState<ItemPhystag[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [agregarOpen, setAgregarOpen] = useState(false);
-    const [filtroDesde, setFiltroDesde] = useState("");
-    const [filtroHasta, setFiltroHasta] = useState("");
 
-    const ubicacionesFiltradas = useMemo(() => {
-        const desde = filtroDesde.trim().toUpperCase();
-        const hasta = filtroHasta.trim().toUpperCase();
+    // filtros
+    const [fUbic, setFUbic] = useState("");
+    const [fItem, setFItem] = useState("");
+    const [fLote, setFLote] = useState("");
+    const [dupMode, setDupMode] = useState<DupMode>("");
 
-        return ubicaciones.filter((u) => {
-            const code = u.ubicacion.ubicacion?.trim().toUpperCase() ?? "";
-            if (!code) return false;
-            if (desde && code < desde) return false;
-            if (hasta && code > hasta) return false;
-            return true;
-        });
-    }, [ubicaciones, filtroDesde, filtroHasta]);
+    const N = (s: any) => (s ?? "").toString().trim().toUpperCase();
 
-    const total = ubicaciones.length;
-    const totalFiltradas = ubicacionesFiltradas.length;
-
-    const emptyState = useMemo(() => {
-        return !loading && !error && total === 0;
-    }, [loading, error, total]);
+    const mostrarLado = useMemo(
+        () => items.some((it: any) => N(it?.bodega) === "13M"),
+        [items]
+    );
 
     const load = async () => {
         if (!grupo) return;
         setLoading(true);
         setError(null);
+
         try {
-            const data = await getUbicacionesPorGrupo(grupo.id);
-            setUbicaciones(data as UbicacionConItems[]);
+            const res = await obtenerItemsPorGrupo(grupo.id);
+            const data = (res as any)?.data ?? [];
+            setItems(Array.isArray(data) ? data : []);
         } catch {
-            setError("Error al cargar ubicaciones del grupo.");
-            toast.error("No se pudieron cargar las ubicaciones del grupo.");
-            setUbicaciones([]);
+            setError("Error al cargar ítems del grupo.");
+            toast.error("No se pudieron cargar los ítems del grupo.");
+            setItems([]);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleEliminar = async (ubicacion: string) => {
+    const parseUbicacionAComponentes = (bodega: string, ubicacion: string) => {
+        const b = N(bodega);
+        const u = N(ubicacion);
+
+        if (b === "11" && u.length >= 4) {
+            return { rack: u.slice(0, 1), lado: "", altura: u.slice(1, 2), ubicacion: u.slice(2, 4) };
+        }
+        if (b === "13M" && u.length >= 6) {
+            return { rack: u.slice(0, 2), lado: u.slice(2, 3), altura: u.slice(3, 4), ubicacion: u.slice(4, 6) };
+        }
+        return null;
+    };
+
+    const handleQuitarUbicacion = async (bodega: string, ubicacionFinal: string) => {
         if (!grupo) return;
+
+        const parts = parseUbicacionAComponentes(bodega, ubicacionFinal);
+        if (!parts) {
+            toast.error("No pude interpretar la ubicación.");
+            return;
+        }
+
+        const filtro: FiltroGrupoUbicacion = {
+            grupoId: grupo.id,
+            bodega: N(bodega),
+            rack: parts.rack,
+            lado: parts.lado,
+            altura: parts.altura,
+            ubicacion: parts.ubicacion,
+        };
+
         try {
-            await eliminarUbicacion(grupo.id, ubicacion);
+            await eliminarFiltro(filtro);
             await load();
-            toast.success("Ubicación eliminada del grupo.");
-        } catch {
-            setError("Error al eliminar ubicación.");
-            toast.error("No se pudo eliminar la ubicación del grupo.");
+            toast.success("Ubicación quitada del grupo.");
+        } catch (err: any) {
+            const data = err?.response?.data;
+            const msg =
+                (typeof data === "string" && data.trim()) ||
+                data?.mensaje ||
+                data?.message ||
+                "No se pudo eliminar.";
+            setError(msg);
+            toast.error(msg);
         }
     };
+
+    // 1) filtros de texto (siempre)
+    const itemsFiltrados = useMemo(() => {
+        const fu = N(fUbic);
+        const fi = N(fItem);
+        const fl = N(fLote);
+
+        return items.filter((it: any) => {
+            const ubic = N(it?.ubicacion);
+            const item = N(it?.item);
+            const lote = N(it?.lote);
+
+            if (fu && !ubic.includes(fu)) return false;
+            if (fi && !item.includes(fi)) return false;
+            if (fl && !lote.includes(fl)) return false;
+            return true;
+        });
+    }, [items, fUbic, fItem, fLote]);
+
+    // 2) contador de repetidos según modo
+    const dupCount = useMemo(() => {
+        const m = new Map<string, number>();
+        if (dupMode === "") return m;
+
+        for (const it of itemsFiltrados as any[]) {
+            const ubic = N(it?.ubicacion);
+            const item = N(it?.item);
+            const lote = N(it?.lote);
+
+            const key = dupMode === "UI" ? `${ubic}::${item}` : `${ubic}::${item}::${lote}`;
+            m.set(key, (m.get(key) ?? 0) + 1);
+        }
+
+        return m;
+    }, [itemsFiltrados, dupMode]);
+
+    // 3) vista final:
+    // - sin criterio: muestra itemsFiltrados
+    // - con criterio: SOLO repetidos (cada uno en su propia línea), y ordenados por Item
+    const itemsVista = useMemo(() => {
+        const base = dupMode === ""
+            ? itemsFiltrados
+            : (itemsFiltrados as any[]).filter((it) => {
+                const ubic = N(it?.ubicacion);
+                const item = N(it?.item);
+                const lote = N(it?.lote);
+                const key = dupMode === "UI" ? `${ubic}::${item}` : `${ubic}::${item}::${lote}`;
+                return (dupCount.get(key) ?? 0) > 1;
+            });
+
+        return [...(base as any[])].sort((a, b) => {
+            const ai = N(a?.item), bi = N(b?.item);
+            const c1 = ai.localeCompare(bi);
+            if (c1 !== 0) return c1;
+
+            const au = N(a?.ubicacion), bu = N(b?.ubicacion);
+            const c2 = au.localeCompare(bu);
+            if (c2 !== 0) return c2;
+
+            const al = N(a?.lote), bl = N(b?.lote);
+            return al.localeCompare(bl);
+        });
+    }, [itemsFiltrados, dupMode, dupCount]);
+
+    const totalItems = items.length;
+    const totalFiltrados = itemsVista.length;
 
     useEffect(() => {
         if (open && grupo) load();
@@ -105,224 +193,195 @@ export function GrupoUbicaciones({ open, grupo, onClose }: GrupoUbicacionesProps
         if (!value) onClose();
     };
 
-    if (!grupo) {
-        return (
-            <Dialog open={open} onOpenChange={handleOpenChange}>
-                <DialogContent className="sm:max-w-4xl">
-                    <DialogHeader>
-                        <DialogTitle>Ubicaciones del grupo</DialogTitle>
-                        <DialogDescription>
-                            Selecciona un grupo para administrar sus ubicaciones.
-                        </DialogDescription>
-                    </DialogHeader>
-                </DialogContent>
-            </Dialog>
-        );
-    }
-
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-4xl max-h-[80vh] flex flex-col">
+            <DialogContent className="sm:max-w-6xl max-h-[85vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Ubicaciones del grupo</DialogTitle>
-                    <DialogDescription>
-                        Administra las ubicaciones asignadas al grupo seleccionado.
-                    </DialogDescription>
+                    <DialogDescription>Ítems resultantes de los filtros asignados al grupo.</DialogDescription>
                 </DialogHeader>
 
-                <div className="flex items-start justify-between gap-3 mb-2 text-sm text-slate-600">
-                    <div className="space-y-1">
-                        <div>
-                            Grupo: <span className="font-medium text-slate-900">{grupo.nombre}</span>
-                        </div>
-                        <div className="text-xs text-slate-500">
-                            {total === 0 ? (
-                                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-900">
-                                    Sin ubicaciones
-                                </span>
-                            ) : (
-                                <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
-                                    {total} ubicaciones
-                                </span>
-                            )}
-                            {total > 0 && (filtroDesde || filtroHasta) ? (
-                                <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-700">
-                                    {totalFiltradas} visibles
-                                </span>
-                            ) : null}
-                        </div>
+                <div className="flex justify-between items-center mb-2 text-sm">
+                    <div className="space-x-2">
+            <span>
+              Grupo: <span className="font-medium">{grupo?.nombre}</span>
+            </span>
+                        <span className="text-xs text-slate-500">Total: {totalItems}</span>
+                        <span className="text-xs text-slate-500">Filtrados: {totalFiltrados}</span>
                     </div>
 
-                    <div className="flex gap-2">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={load}
-                            disabled={loading}
-                            className="rounded-full h-8 px-3 text-xs"
-                        >
-                            Actualizar
-                        </Button>
-                        <Button
-                            size="sm"
-                            onClick={() => setAgregarOpen(true)}
-                            className="rounded-full h-8 px-3 text-xs"
-                        >
-                            Agregar ubicación
-                        </Button>
-                    </div>
-                </div>
-
-                {error ? (
-                    <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                        {error}
-                    </div>
-                ) : null}
-
-                {emptyState ? (
-                    <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                        <div className="text-sm font-semibold text-amber-900">
-                            Este grupo no tiene ubicaciones
-                        </div>
-                        <div className="text-xs text-amber-900/80 mt-1">
-                            Agrega al menos una ubicación para que el grupo pueda participar en los conteos y permitir el cierre.
-                        </div>
-                        <div className="mt-3">
-                            <Button
-                                size="sm"
-                                onClick={() => setAgregarOpen(true)}
-                                className="rounded-full h-8 px-3 text-xs"
-                            >
-                                Agregar primera ubicación
-                            </Button>
-                        </div>
-                    </div>
-                ) : null}
-
-                <div className="mb-3 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <div className="flex-1 min-w-[120px]">
-                        <Label htmlFor="filtroDesde" className="text-xs text-slate-600 mb-1">
-                            Filtrar desde
-                        </Label>
-                        <Input
-                            id="filtroDesde"
-                            className="text-sm"
-                            value={filtroDesde}
-                            onChange={(e) => setFiltroDesde(e.target.value.toUpperCase())}
-                            placeholder="Ej: E200"
-                        />
-                    </div>
-                    <div className="flex-1 min-w-[120px]">
-                        <Label htmlFor="filtroHasta" className="text-xs text-slate-600 mb-1">
-                            Hasta
-                        </Label>
-                        <Input
-                            id="filtroHasta"
-                            className="text-sm"
-                            value={filtroHasta}
-                            onChange={(e) => setFiltroHasta(e.target.value.toUpperCase())}
-                            placeholder="Ej: E299"
-                        />
-                    </div>
                     <Button
-                        type="button"
-                        variant="ghost"
                         size="sm"
-                        className="text-xs"
-                        onClick={() => {
-                            setFiltroDesde("");
-                            setFiltroHasta("");
-                        }}
+                        onClick={() => setAgregarOpen(true)}
+                        className="rounded-full h-8 px-3 text-xs"
+                        disabled={!grupo}
                     >
-                        Limpiar
+                        Asignar ubicación al grupo
                     </Button>
                 </div>
 
-                <div className="flex-1 overflow-auto border border-slate-200 rounded-2xl">
+                {/* Filtros + repetidos */}
+                <div className="mb-2 grid grid-cols-1 md:grid-cols-4 gap-2 border rounded p-3">
+                    <div>
+                        <Label className="text-xs">Ubicación</Label>
+                        <Input
+                            value={fUbic}
+                            onChange={(e) => setFUbic(e.target.value)}
+                            placeholder="Ej: B102"
+                            className="h-9"
+                        />
+                    </div>
+
+                    <div>
+                        <Label className="text-xs">Item</Label>
+                        <Input
+                            value={fItem}
+                            onChange={(e) => setFItem(e.target.value)}
+                            placeholder="Ej: 005783"
+                            className="h-9"
+                        />
+                    </div>
+
+                    <div>
+                        <Label className="text-xs">Lote</Label>
+                        <Input
+                            value={fLote}
+                            onChange={(e) => setFLote(e.target.value)}
+                            placeholder="Ej: L123"
+                            className="h-9"
+                        />
+                    </div>
+
+                    <div>
+                        <Label className="text-xs">Criterio repetido</Label>
+                        <select
+                            value={dupMode}
+                            onChange={(e) => setDupMode(e.target.value as DupMode)}
+                            className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                        >
+                            <option value="">Sin criterio</option>
+                            <option value="UI">Ubicación + Item</option>
+                            <option value="UIL">Ubicación + Item + Lote</option>
+                        </select>
+                    </div>
+
+                    <div className="md:col-span-4 flex justify-end">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9"
+                            onClick={() => {
+                                setFUbic("");
+                                setFItem("");
+                                setFLote("");
+                                setDupMode("");
+                            }}
+                        >
+                            Limpiar
+                        </Button>
+                    </div>
+                </div>
+
+                {error && (
+                    <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                        {error}
+                    </div>
+                )}
+
+                <div className="flex-1 overflow-auto border rounded">
                     {loading ? (
-                        <div className="p-4 text-sm text-slate-600">Cargando...</div>
-                    ) : ubicacionesFiltradas.length === 0 ? (
-                        <div className="p-6 text-center">
-                            <div className="text-sm font-semibold text-slate-900">Sin resultados</div>
-                            <div className="text-xs text-slate-600 mt-1">
-                                Ajusta los filtros o límpialos para ver ubicaciones.
-                            </div>
-                            <div className="mt-3 flex justify-center gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="rounded-full h-8 px-3 text-xs"
-                                    onClick={() => {
-                                        setFiltroDesde("");
-                                        setFiltroHasta("");
-                                    }}
-                                >
-                                    Limpiar filtros
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    className="rounded-full h-8 px-3 text-xs"
-                                    onClick={() => setAgregarOpen(true)}
-                                >
-                                    Agregar ubicación
-                                </Button>
-                            </div>
-                        </div>
+                        <div className="p-4 text-sm">Cargando…</div>
+                    ) : itemsVista.length === 0 ? (
+                        <div className="p-6 text-center text-sm">Sin resultados</div>
                     ) : (
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[60px]">ID</TableHead>
+                                    <TableHead>Bodega</TableHead>
+                                    <TableHead>Etiqueta</TableHead>
+                                    <TableHead>Item</TableHead>
+                                    <TableHead>Prod</TableHead>
+                                    <TableHead>Ubicaciones</TableHead>
+                                    <TableHead>Rack</TableHead>
+                                    {mostrarLado && <TableHead>Lado</TableHead>}
+                                    <TableHead>Altura</TableHead>
                                     <TableHead>Ubicación</TableHead>
-                                    <TableHead>Ítems</TableHead>
+                                    <TableHead>Lote</TableHead>
+                                    <TableHead>Descripción</TableHead>
+                                    <TableHead>Udm</TableHead>
                                     <TableHead className="text-right">Acciones</TableHead>
                                 </TableRow>
                             </TableHeader>
+
                             <TableBody>
-                                {ubicacionesFiltradas.map((u) => (
-                                    <TableRow key={u.ubicacion.id}>
-                                        <TableCell className="text-slate-700">{u.ubicacion.id}</TableCell>
-                                        <TableCell className="font-medium text-slate-900">
-                                            {u.ubicacion.ubicacion}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                                                {u.items?.length ? (
-                                                    u.items.map((item) => (
-                                                        <div key={item.item} className="text-xs text-slate-700 leading-snug">
-                                                            <span className="font-mono mr-2">{item.item.trim()}</span>
-                                                            <span className="text-slate-900">{item.descripcion.trim()}</span>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="text-xs text-slate-500">Sin ítems</div>
-                                                )}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="text-xs text-red-600 hover:text-red-700"
-                                                onClick={() => handleEliminar(u.ubicacion.ubicacion)}
-                                            >
-                                                Eliminar
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                {itemsVista.map((it: any) => {
+                                    const b = N(it?.bodega);
+                                    const ubic = N(it?.ubicacion);
+                                    const item = N(it?.item);
+                                    const lote = N(it?.lote);
+
+                                    const dupKey =
+                                        dupMode === ""
+                                            ? ""
+                                            : dupMode === "UI"
+                                                ? `${ubic}::${item}`
+                                                : `${ubic}::${item}::${lote}`;
+
+                                    const veces = dupKey ? dupCount.get(dupKey) ?? 0 : 0;
+
+                                    return (
+                                        <TableRow key={`${b}-${ubic}-${item}-${lote}-${it?.etiqueta ?? ""}`}>
+                                            <TableCell>{b}</TableCell>
+                                            <TableCell>{(it?.etiqueta ?? "").toString().trim()}</TableCell>
+
+                                            <TableCell className="font-mono">
+                                                {item}
+                                                {dupMode !== "" && veces > 1 ? (
+                                                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-900">
+                            repetido x{veces}
+                          </span>
+                                                ) : null}
+                                            </TableCell>
+
+                                            <TableCell>{(it?.prod ?? "").toString().trim()}</TableCell>
+                                            <TableCell className="font-mono">{ubic}</TableCell>
+                                            <TableCell>{(it?.rackPasillo ?? "").toString().trim()}</TableCell>
+                                            {mostrarLado && <TableCell>{(it?.lado ?? "").toString().trim()}</TableCell>}
+                                            <TableCell>{(it?.altura ?? "").toString().trim()}</TableCell>
+                                            <TableCell>{(it?.posicion ?? "").toString().trim()}</TableCell>
+                                            <TableCell>{(it?.lote ?? "").toString().trim()}</TableCell>
+                                            <TableCell>{(it?.descripcion ?? "").toString().trim()}</TableCell>
+                                            <TableCell>{(it?.udm ?? "").toString().trim()}</TableCell>
+
+                                            <TableCell className="text-right">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-xs text-red-600"
+                                                    onClick={() => handleQuitarUbicacion(it.bodega, it.ubicacion)}
+                                                    disabled={!grupo}
+                                                >
+                                                    Quitar ubicación del grupo
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     )}
                 </div>
 
-                <GrupoUbicacionesAgregarDialog
-                    open={agregarOpen}
-                    grupo={grupo}
-                    onClose={() => setAgregarOpen(false)}
-                    onAfterAdd={load}
-                    onSetParentError={setError}
-                />
+                {grupo && (
+                    <GrupoUbicacionesAgregarDialog
+                        open={agregarOpen}
+                        grupo={grupo}
+                        onClose={() => setAgregarOpen(false)}
+                        onAfterAdd={load}
+                        onSetParentError={setError}
+                    />
+                )}
             </DialogContent>
         </Dialog>
     );

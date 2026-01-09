@@ -1,53 +1,103 @@
 import api from "./api";
 
-export interface GrupoUbicacion {
-    id: number;
+export interface FiltroGrupoUbicacion {
     grupoId: number;
+    bodega: string;
+    rack: string;
+    lado: string;
+    altura: string;
     ubicacion: string;
 }
 
-export interface ItemConUbicacion {
+export interface UbicacionMaterializada {
     ubicacion: string;
+    rack: string;
+    lado: string;
+    altura: string;
+    posicion: string;
+}
+
+export interface AgregarUbicacionesRequest {
+    grupoId: number;
+    bodega: string;
+    ubicaciones: UbicacionMaterializada[];
+}
+
+export interface ItemPhystag {
+    cmpy: string;
+    bodega: string;
+    etiqueta: string;
     item: string;
+    prod: string;
+    ubicacion: string;
+    rackPasillo: string;
+    lado: string;
+    altura: string;
+    posicion: string;
+    lote: string;
     descripcion: string;
+    udm: string;
+    costo: number;
+    cantidadSistema: number;
+    grupoId: number;
+    grupoNombre: string;
 }
 
-export async function getUbicacionesPorGrupo(
-    grupoId: number
-): Promise<any[]> {
-    const res = await api.get<any[]>(`/GrupoUbicacion/${grupoId}`);
+export async function obtenerItemsPorGrupo(
+    grupoId?: number
+): Promise<{ total: number; data: ItemPhystag[] }> {
+    const res = await api.get("/GrupoUbicacion", {
+        params: grupoId ? { grupoId } : {},
+    });
     return res.data;
 }
 
-export async function agregarUbicacion(
-    grupoId: number,
-    ubicacion: string
+export async function previsualizarItems(params: {
+    bodega: string;
+    rack?: string;
+    lado?: string;
+    altura?: string;
+    ubicacion?: string;
+}): Promise<{ total: number; data: ItemPhystag[] }> {
+    const res = await api.get("/GrupoUbicacion/previsualizar", { params });
+    return res.data;
+}
+
+export async function obtenerBodegas(): Promise<{
+    total: number;
+    data: { id: string; descripcion: string }[];
+}> {
+    const res = await api.get("/GrupoUbicacion/bodegas");
+    return res.data;
+}
+
+export async function agregarUbicacionesAlGrupo(
+    req: AgregarUbicacionesRequest
 ): Promise<void> {
-    await api.post("/GrupoUbicacion/agregar", null, {
-        params: { grupoId, ubicacion },
+    await api.post("/GrupoUbicacion/agregar", {
+        grupoId: req.grupoId,
+        bodega: req.bodega,
+        ubicaciones: (req.ubicaciones || []).map((x) => ({
+            ubicacion: x.ubicacion ?? "",
+            rack: x.rack ?? "",
+            lado: x.lado ?? "",
+            altura: x.altura ?? "",
+            posicion: x.posicion ?? "",
+        })),
     });
 }
 
-export async function eliminarUbicacion(
-    grupoId: number,
-    ubicacion: string
+export async function eliminarFiltro(
+    filtro: FiltroGrupoUbicacion
 ): Promise<void> {
     await api.delete("/GrupoUbicacion/eliminar", {
-        params: { grupoId, ubicacion },
+        params: {
+            grupoId: filtro.grupoId,
+            bodega: filtro.bodega,
+            rack: filtro.rack ?? "",
+            lado: filtro.lado ?? "",
+            altura: filtro.altura ?? "",
+            ubicacion: filtro.ubicacion ?? "",
+        },
     });
-}
-
-export async function buscarUbicaciones(desde: string, hasta: string) {
-    return await api.get("/GrupoUbicacion/rango", {
-        params: { desde: desde.trim(), hasta: hasta.trim() },
-    });
-}
-
-export async function obtenerItemsPorUbicacion(
-    ubicacion: string
-): Promise<ItemConUbicacion[]> {
-    const res = await api.get<ItemConUbicacion[]>("/GrupoUbicacion/items", {
-        params: { ubicacion },
-    });
-    return res.data;
 }

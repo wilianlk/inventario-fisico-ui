@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, type FormEvent, useMemo } from "react";
 import { GrupoConteo } from "@/services/grupoConteoService";
 import {
-    agregarUbicacion,
-    buscarUbicaciones,
-    obtenerItemsPorUbicacion,
-    ItemConUbicacion,
+    previsualizarItems,
+    agregarUbicacionesAlGrupo,
+    type ItemPhystag,
 } from "@/services/grupoUbicacionService";
 import {
     Dialog,
@@ -26,7 +25,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "react-toastify";
 
-type ModoUbicacion = "unico" | "rango";
+type Bodega = "" | "11" | "13M";
 
 interface Props {
     open: boolean;
@@ -43,33 +42,44 @@ export function GrupoUbicacionesAgregarDialog({
                                                   onAfterAdd,
                                                   onSetParentError,
                                               }: Props) {
-    const [modo, setModo] = useState<ModoUbicacion>("unico");
-    const [ubicacionUnica, setUbicacionUnica] = useState("");
-    const [ubicacionDesde, setUbicacionDesde] = useState("");
-    const [ubicacionHasta, setUbicacionHasta] = useState("");
-    const [previewUbicaciones, setPreviewUbicaciones] = useState<string[]>([]);
-    const [previewItems, setPreviewItems] = useState<ItemConUbicacion[]>([]);
+    const [bodega, setBodega] = useState<Bodega>("");
+
+    const [rack11, setRack11] = useState("");
+    const [altura11, setAltura11] = useState("");
+    const [ubic11, setUbic11] = useState("");
+
+    const [rack13, setRack13] = useState("");
+    const [lado13, setLado13] = useState<"" | "A" | "B">("");
+    const [altura13, setAltura13] = useState("");
+    const [ubic13, setUbic13] = useState("");
+
+    const [previewItems, setPreviewItems] = useState<ItemPhystag[]>([]);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
     const [agregando, setAgregando] = useState(false);
 
-    const normalizeUb = (u: string) => (u || "").trim().toUpperCase();
-
-    const uniqueUbs = (arr: string[]) => {
-        const norm = arr.map(normalizeUb).filter(Boolean);
-        return Array.from(new Set(norm));
-    };
+    const N = (s: any) => (s ?? "").toString().trim().toUpperCase();
 
     const reset = () => {
-        setModo("unico");
-        setUbicacionUnica("");
-        setUbicacionDesde("");
-        setUbicacionHasta("");
-        setPreviewUbicaciones([]);
+        setBodega("");
+        setRack11("");
+        setAltura11("");
+        setUbic11("");
+
+        setRack13("");
+        setLado13("");
+        setAltura13("");
+        setUbic13("");
+
         setPreviewItems([]);
         setPreviewError(null);
         setPreviewLoading(false);
         setAgregando(false);
+    };
+
+    const clearResultados = () => {
+        setPreviewItems([]);
+        setPreviewError(null);
     };
 
     const handleOpenChange = (value: boolean) => {
@@ -79,227 +89,269 @@ export function GrupoUbicacionesAgregarDialog({
         }
     };
 
-    const handleBuscar = async (e: React.FormEvent) => {
+    const extraerMsgError = (err: any, fallback: string) => {
+        const data = err?.response?.data;
+        if (typeof data === "string" && data.trim()) return data;
+        return data?.mensaje || data?.message || fallback;
+    };
+
+    const buildParams = () => {
+        if (!bodega) return null;
+
+        if (bodega === "11") {
+            return {
+                bodega,
+                rack: N(rack11) || undefined,
+                lado: undefined,
+                altura: (altura11 || "").trim() || undefined,
+                ubicacion: (ubic11 || "").trim() || undefined,
+            };
+        }
+
+        return {
+            bodega,
+            rack: (rack13 || "").trim() || undefined,
+            lado: N(lado13) || undefined,
+            altura: (altura13 || "").trim() || undefined,
+            ubicacion: (ubic13 || "").trim() || undefined,
+        };
+    };
+
+    const handleBuscar = async (e: FormEvent) => {
         e.preventDefault();
 
-        let desde = "";
-        let hasta = "";
+        if (!bodega) {
+            setPreviewError("Seleccione una bodega.");
+            return;
+        }
 
-        if (modo === "unico") {
-            if (!ubicacionUnica.trim()) return;
-            desde = ubicacionUnica.toUpperCase().trim();
-            hasta = desde;
-        } else {
-            if (!ubicacionDesde.trim() || !ubicacionHasta.trim()) {
-                setPreviewError("Debe diligenciar desde y hasta.");
-                return;
-            }
-            desde = ubicacionDesde.toUpperCase().trim();
-            hasta = ubicacionHasta.toUpperCase().trim();
+        clearResultados();
+
+        const params = buildParams();
+        if (!params) {
+            setPreviewError("Seleccione una bodega.");
+            return;
         }
 
         setPreviewLoading(true);
         setPreviewError(null);
-        setPreviewItems([]);
-        setPreviewUbicaciones([]);
 
         try {
-            const rango = await buscarUbicaciones(desde, hasta);
-            const listaRaw: string[] = rango.data || [];
-            const lista = uniqueUbs(listaRaw);
+            const res = await previsualizarItems(params);
+            const items = (res?.data || []) as ItemPhystag[];
 
-            if (!lista || lista.length === 0) {
-                setPreviewError("La ubicación no existe en inventario.");
+            setPreviewItems(items);
+
+            if (!items.length) {
+                setPreviewError("No se encontraron ítems con ese filtro.");
                 return;
             }
-
-            const itemsAcumulados: ItemConUbicacion[] = [];
-            for (const ub of lista) {
-                const itemsUb = await obtenerItemsPorUbicacion(ub);
-                itemsAcumulados.push(...itemsUb);
-            }
-
-            if (itemsAcumulados.length === 0) {
-                setPreviewError("La ubicación no tiene ítems en inventario.");
-                return;
-            }
-
-            setPreviewUbicaciones(lista);
-            setPreviewItems(itemsAcumulados);
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.mensaje ||
-                err?.response?.data?.message ||
-                "Error al buscar la ubicación.";
-            setPreviewError(msg);
+            setPreviewError(extraerMsgError(err, "Error al buscar."));
         } finally {
             setPreviewLoading(false);
         }
     };
 
+    // ✅ Materializar: de los items previsualizados sacar ubicaciones únicas (tg_bin)
+    const ubicacionesMaterializadas = useMemo(() => {
+        const map = new Map<string, any>();
+
+        for (const it of previewItems as any[]) {
+            const ubicacionCompleta = N(it?.ubicacion); // tg_bin (ej: B301)
+            if (!ubicacionCompleta) continue;
+
+            if (!map.has(ubicacionCompleta)) {
+                map.set(ubicacionCompleta, {
+                    ubicacion: ubicacionCompleta,
+                    rack: N(it?.rackPasillo),
+                    lado: N(it?.lado) || "",
+                    altura: (it?.altura ?? "").toString().trim(),
+                    posicion: (it?.posicion ?? "").toString().trim(),
+                });
+            }
+        }
+
+        return Array.from(map.values());
+    }, [previewItems]);
+
     const handleConfirmarAgregar = async () => {
         if (agregando) return;
+        if (!bodega) return;
 
-        const ubs = uniqueUbs(previewUbicaciones);
-        if (ubs.length === 0) return;
+        if (previewItems.length === 0 || ubicacionesMaterializadas.length === 0) {
+            const msg = "Primero debes buscar (previsualizar) y tener resultados.";
+            setPreviewError(msg);
+            toast.warning(msg);
+            return;
+        }
 
         setAgregando(true);
         onSetParentError(null);
 
-        const agregadas: string[] = [];
-        const yaEnGrupo = new Set<string>();
-        const otrosErrores: Array<{ ub: string; msg: string }> = [];
-
-        const isYaAsignadaMismoGrupo = (msg: string) => {
-            const m = (msg || "").toLowerCase();
-            return (
-                m.includes("ya está asignada a este grupo") ||
-                m.includes("ya esta asignada a este grupo")
-            );
-        };
-
-        const resumenLista = (arr: string[], max = 12) => {
-            const unicas = Array.from(new Set(arr.map(normalizeUb).filter(Boolean))).sort();
-            if (unicas.length <= max) return unicas.join(", ");
-            return `${unicas.slice(0, max).join(", ")} y ${unicas.length - max} más`;
-        };
-
         try {
-            for (const ub of ubs) {
-                try {
-                    await agregarUbicacion(grupo.id, ub);
-                    agregadas.push(ub);
-                } catch (err: any) {
-                    const msg =
-                        err?.response?.data?.mensaje ||
-                        err?.response?.data?.message ||
-                        "Error al agregar ubicación.";
-
-                    if (isYaAsignadaMismoGrupo(msg)) {
-                        yaEnGrupo.add(ub);
-                    } else {
-                        otrosErrores.push({ ub, msg });
-                    }
-                }
-            }
+            await agregarUbicacionesAlGrupo({
+                grupoId: grupo.id,
+                bodega,
+                ubicaciones: ubicacionesMaterializadas,
+            });
 
             await onAfterAdd();
-
-            if (agregadas.length > 0) {
-                toast.success(`Se agregaron ${agregadas.length} ubicación(es).`);
-            }
-
-            let msgFinal = "";
-
-            const yaList = Array.from(yaEnGrupo);
-            if (yaList.length > 0) {
-                const r = resumenLista(yaList);
-                msgFinal += `Ya estaban en este grupo (${yaList.length}): ${r}.`;
-                toast.info(`Ya estaban en este grupo: ${r}.`);
-            }
-
-            if (otrosErrores.length > 0) {
-                const unicos = new Map<string, string>();
-                for (const e of otrosErrores) {
-                    if (!unicos.has(e.ub)) unicos.set(e.ub, e.msg);
-                }
-
-                const lineas = Array.from(unicos.entries())
-                    .slice(0, 10)
-                    .map(([ub, msg]) => `• ${ub}: ${msg}`)
-                    .join("\n");
-
-                const extra = unicos.size > 10 ? `\n• y ${unicos.size - 10} más.` : "";
-
-                msgFinal += (msgFinal ? "\n\n" : "") + `Errores al agregar (${unicos.size}):\n${lineas}${extra}`;
-                toast.error(`Hubo ${unicos.size} error(es) al agregar.`);
-            }
-
-            if (msgFinal) {
-                onSetParentError(msgFinal);
-                return;
-            }
-
+            toast.success("Ubicaciones agregadas correctamente.");
             reset();
             onClose();
+        } catch (err: any) {
+            const msg = extraerMsgError(err, "Error al agregar.");
+            toast.error("No se pudieron agregar las ubicaciones.");
+            onSetParentError(msg);
         } finally {
             setAgregando(false);
         }
     };
 
+    const canBuscar = !previewLoading && !!bodega;
+    const canAgregar =
+        !agregando && !!bodega && !previewLoading && ubicacionesMaterializadas.length > 0;
+
+    const mostrarLado = bodega === "13M";
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-5xl">
                 <DialogHeader>
-                    <DialogTitle>Agregar ubicación</DialogTitle>
+                    <DialogTitle>Agregar filtro</DialogTitle>
                     <DialogDescription>
-                        Elige si quieres agregar una única ubicación o un rango, revisa los ítems y confirma.
+                        Selecciona bodega, digita lo que tengas y previsualiza. Luego agrega al grupo
+                        las ubicaciones resultantes.
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleBuscar} className="space-y-4 mb-3">
-                    <div className="flex gap-4 text-sm">
-                        <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                                type="radio"
-                                value="unico"
-                                checked={modo === "unico"}
-                                onChange={() => setModo("unico")}
-                            />
-                            Único
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                                type="radio"
-                                value="rango"
-                                checked={modo === "rango"}
-                                onChange={() => setModo("rango")}
-                            />
-                            Rango
-                        </label>
+                    <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Bodega</Label>
+                        <select
+                            value={bodega}
+                            onChange={(e) => {
+                                const val = (e.target.value || "") as Bodega;
+                                setBodega(val);
+
+                                setRack11("");
+                                setAltura11("");
+                                setUbic11("");
+                                setRack13("");
+                                setLado13("");
+                                setAltura13("");
+                                setUbic13("");
+
+                                clearResultados();
+                            }}
+                            className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                        >
+                            <option value="">Seleccione…</option>
+                            <option value="11">11 – Recamier</option>
+                            <option value="13M">13M – CCL</option>
+                        </select>
                     </div>
 
-                    {modo === "unico" ? (
-                        <div className="space-y-1">
-                            <Label htmlFor="ubicacionUnica" className="text-xs text-slate-600">
-                                Ubicación
-                            </Label>
-                            <Input
-                                id="ubicacionUnica"
-                                className="text-sm"
-                                value={ubicacionUnica}
-                                onChange={(e) => setUbicacionUnica(e.target.value)}
-                                placeholder="Ej: E202"
-                            />
-                        </div>
-                    ) : (
-                        <div className="flex gap-3">
-                            <div className="flex-1 space-y-1">
-                                <Label htmlFor="ubicacionDesde" className="text-xs text-slate-600">
-                                    Desde
-                                </Label>
+                    {bodega === "11" ? (
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Rack/Pasillo</Label>
                                 <Input
-                                    id="ubicacionDesde"
+                                    value={rack11}
+                                    onChange={(e) => {
+                                        setRack11(e.target.value.toUpperCase().slice(0, 1));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: B"
                                     className="text-sm"
-                                    value={ubicacionDesde}
-                                    onChange={(e) => setUbicacionDesde(e.target.value)}
-                                    placeholder="Ej: E202"
                                 />
                             </div>
-                            <div className="flex-1 space-y-1">
-                                <Label htmlFor="ubicacionHasta" className="text-xs text-slate-600">
-                                    Hasta
-                                </Label>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Altura</Label>
                                 <Input
-                                    id="ubicacionHasta"
+                                    value={altura11}
+                                    onChange={(e) => {
+                                        setAltura11(e.target.value.replace(/\D/g, "").slice(0, 1));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: 2"
                                     className="text-sm"
-                                    value={ubicacionHasta}
-                                    onChange={(e) => setUbicacionHasta(e.target.value)}
-                                    placeholder="Ej: E205"
+                                    inputMode="numeric"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Ubicación</Label>
+                                <Input
+                                    value={ubic11}
+                                    onChange={(e) => {
+                                        setUbic11(e.target.value.replace(/\D/g, "").slice(0, 2));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: 31"
+                                    className="text-sm"
+                                    inputMode="numeric"
                                 />
                             </div>
                         </div>
-                    )}
+                    ) : bodega === "13M" ? (
+                        <div className="grid grid-cols-4 gap-3">
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Rack/Pasillo</Label>
+                                <Input
+                                    value={rack13}
+                                    onChange={(e) => {
+                                        setRack13(e.target.value.replace(/\D/g, "").slice(0, 2));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: 07"
+                                    className="text-sm"
+                                    inputMode="numeric"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Lado</Label>
+                                <select
+                                    value={lado13}
+                                    onChange={(e) => {
+                                        setLado13((e.target.value || "").toUpperCase() as any);
+                                        clearResultados();
+                                    }}
+                                    className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                                >
+                                    <option value="">Seleccione…</option>
+                                    <option value="A">A</option>
+                                    <option value="B">B</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Altura</Label>
+                                <Input
+                                    value={altura13}
+                                    onChange={(e) => {
+                                        setAltura13(e.target.value.replace(/\D/g, "").slice(0, 1));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: 6"
+                                    className="text-sm"
+                                    inputMode="numeric"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-slate-600">Ubicación</Label>
+                                <Input
+                                    value={ubic13}
+                                    onChange={(e) => {
+                                        setUbic13(e.target.value.replace(/\D/g, "").slice(0, 2));
+                                        clearResultados();
+                                    }}
+                                    placeholder="Ej: 41"
+                                    className="text-sm"
+                                    inputMode="numeric"
+                                />
+                            </div>
+                        </div>
+                    ) : null}
 
                     {previewError && (
                         <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
@@ -308,68 +360,89 @@ export function GrupoUbicacionesAgregarDialog({
                     )}
 
                     <div className="flex justify-end">
-                        <Button
-                            type="submit"
-                            size="sm"
-                            disabled={
-                                previewLoading ||
-                                (modo === "unico" && !ubicacionUnica.trim()) ||
-                                (modo === "rango" &&
-                                    (!ubicacionDesde.trim() || !ubicacionHasta.trim()))
-                            }
-                        >
+                        <Button type="submit" size="sm" disabled={!canBuscar}>
                             {previewLoading ? "Buscando..." : "Buscar"}
                         </Button>
                     </div>
                 </form>
 
                 {previewItems.length > 0 && (
-                    <div className="border border-slate-200 rounded-md max-h-48 overflow-y-auto mb-4">
+                    <div className="mb-2 text-xs text-slate-600">
+                        Total ítems:{" "}
+                        <span className="font-medium text-slate-900">{previewItems.length}</span>
+                        {"  "}
+                        <span className="ml-3">
+              Ubicaciones a guardar:{" "}
+                            <span className="font-medium text-slate-900">
+                {ubicacionesMaterializadas.length}
+              </span>
+            </span>
+                    </div>
+                )}
+
+                {previewItems.length > 0 && (
+                    <div className="border border-slate-200 rounded-md max-h-64 overflow-auto mb-4">
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead>Bodega</TableHead>
+                                    <TableHead>Etiqueta</TableHead>
+                                    <TableHead>Item</TableHead>
+                                    <TableHead>Prod</TableHead>
+                                    <TableHead>Ubicaciones</TableHead>
+                                    <TableHead>Rack</TableHead>
+                                    {mostrarLado && <TableHead>Lado</TableHead>}
+                                    <TableHead>Altura</TableHead>
                                     <TableHead>Ubicación</TableHead>
-                                    <TableHead>Código</TableHead>
+                                    <TableHead>Lote</TableHead>
                                     <TableHead>Descripción</TableHead>
+                                    <TableHead>Udm</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {previewItems.map((it) => (
-                                    <TableRow key={`${it.ubicacion}-${it.item}`}>
-                                        <TableCell className="text-xs">
-                                            {it.ubicacion.trim()}
-                                        </TableCell>
-                                        <TableCell className="font-mono text-xs">
-                                            {it.item.trim()}
-                                        </TableCell>
-                                        <TableCell className="text-xs">
-                                            {it.descripcion.trim()}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
+                                {previewItems.map((it) => {
+                                    const b = N((it as any).bodega || "");
+                                    const etiqueta = ((it as any).etiqueta ?? "").toString().trim();
+                                    const item = ((it as any).item ?? "").toString().trim();
+                                    const prod = ((it as any).prod ?? "").toString().trim();
+                                    const ubicaciones = N((it as any).ubicacion || "");
+                                    const rack = ((it as any).rackPasillo ?? "").toString().trim();
+                                    const lado = ((it as any).lado ?? "").toString().trim();
+                                    const altura = ((it as any).altura ?? "").toString().trim();
+                                    const ubicacion = ((it as any).posicion ?? "").toString().trim();
+                                    const lote = ((it as any).lote ?? "").toString().trim();
+                                    const descripcion = ((it as any).descripcion ?? "").toString().trim();
+                                    const udm = ((it as any).udm ?? "").toString().trim();
+
+                                    const key = `${b}-${ubicaciones}-${item}-${lote}-${etiqueta}`;
+
+                                    return (
+                                        <TableRow key={key}>
+                                            <TableCell className="text-xs">{b}</TableCell>
+                                            <TableCell className="text-xs">{etiqueta}</TableCell>
+                                            <TableCell className="font-mono text-xs">{item}</TableCell>
+                                            <TableCell className="text-xs">{prod}</TableCell>
+                                            <TableCell className="font-mono text-xs">{ubicaciones}</TableCell>
+                                            <TableCell className="text-xs">{rack}</TableCell>
+                                            {mostrarLado && <TableCell className="text-xs">{lado}</TableCell>}
+                                            <TableCell className="text-xs">{altura}</TableCell>
+                                            <TableCell className="text-xs">{ubicacion}</TableCell>
+                                            <TableCell className="text-xs">{lote}</TableCell>
+                                            <TableCell className="text-xs">{descripcion}</TableCell>
+                                            <TableCell className="text-xs">{udm}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     </div>
                 )}
 
                 <div className="flex justify-end gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleOpenChange(false)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
                         Cancelar
                     </Button>
-                    <Button
-                        size="sm"
-                        disabled={
-                            agregando ||
-                            previewLoading ||
-                            previewItems.length === 0 ||
-                            previewUbicaciones.length === 0
-                        }
-                        onClick={handleConfirmarAgregar}
-                    >
+                    <Button size="sm" disabled={!canAgregar} onClick={handleConfirmarAgregar}>
                         {agregando ? "Agregando..." : "Agregar al grupo"}
                     </Button>
                 </div>

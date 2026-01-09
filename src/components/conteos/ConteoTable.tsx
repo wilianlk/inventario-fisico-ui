@@ -74,6 +74,7 @@ const ConteoTable = ({
     const clearSavedTimersRef = useRef<Record<number, number>>({});
     const dirtyByIdRef = useRef<Record<number, boolean>>({});
     const debounceTimersRef = useRef<Record<number, number>>({});
+    const lastScanApplyAtRef = useRef<Record<number, number>>({});
 
     const getManaged = (id: number) => (isManaged ? !!isManaged(id) : true);
 
@@ -256,6 +257,11 @@ const ConteoTable = ({
             setRowState(item.id, { status: "error", message, locked: isLocked });
             toast.error(message);
 
+            if (!isLocked) {
+                dirtyByIdRef.current[item.id] = true;
+                return;
+            }
+
             dirtyByIdRef.current[item.id] = false;
             const base = last === null ? "" : String(last);
             setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: base });
@@ -294,12 +300,18 @@ const ConteoTable = ({
 
     const setTotalField = (item: ItemConteo, value: string) => {
         if (locked || !editable) return;
+
+        const p = getParts(item);
+        if (anyManualFilled(p)) return;
+
+        const lastScanAt = lastScanApplyAtRef.current[item.id] ?? 0;
+        if (lastScanAt > 0 && Date.now() - lastScanAt < 1500) return;
+
         dirtyByIdRef.current[item.id] = true;
 
         const v = (value || "").trim();
         onSetManaged?.(item.id, v !== "");
 
-        const p = getParts(item);
         setPart(item.id, { ...p, unidades: "", paquetes: "", saldos: "", total: value });
         scheduleGuardarDebounced(item);
     };
@@ -335,6 +347,7 @@ const ConteoTable = ({
         const item = items.find((x) => x.id === itemId);
         if (!item) return;
 
+        lastScanApplyAtRef.current[itemId] = Date.now();
         dirtyByIdRef.current[itemId] = true;
 
         const p = getParts(item);
@@ -342,17 +355,42 @@ const ConteoTable = ({
         const prevU = clamp0(toNum((p.unidades || "").trim()));
         const nextU = mode === "replace" ? clamp0(v) : clamp0(prevU + v);
 
-        const next: Parts = { ...p, unidades: String(nextU) };
+        const next: Parts = {
+            unidades: String(nextU),
+            paquetes: p.paquetes,
+            saldos: p.saldos,
+            total: p.total,
+        };
 
         onSetManaged?.(itemId, true);
 
         const totalManual = calcularManual(next);
+
         setPart(itemId, { ...next, total: String(totalManual) });
 
-        scheduleGuardarDebounced(item);
+        clearDebounce(itemId);
+
+        setRowState(itemId, { status: "saving" });
+
+        (async () => {
+            try {
+                await onUpdateCantidad(itemId, totalManual);
+                lastSavedTotalRef.current[itemId] = totalManual;
+                dirtyByIdRef.current[itemId] = false;
+                setRowState(itemId, { status: "saved" });
+                markSavedTemporarily(itemId);
+            } catch (err) {
+                const { status, message } = extractError(err);
+                const isLocked = status === 409;
+                if (isLocked) setLocked(true);
+
+                setRowState(itemId, { status: "error", message, locked: isLocked });
+                toast.error(message);
+                dirtyByIdRef.current[itemId] = true;
+            }
+        })();
     }, [scanApply?.nonce]);
 
-    // ✅ FIX: hooks (useMemo) deben ir ANTES de returns condicionales
     const fEtiqueta = (searchFilters.etiqueta || "").trim().toLowerCase();
     const fCodigo = (searchFilters.codigoItem || "").trim().toLowerCase();
     const fDesc = (searchFilters.descripcion || "").trim().toLowerCase();

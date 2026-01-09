@@ -1,35 +1,18 @@
 import { useMemo, useState } from "react";
-import { ItemConteo, DetalleConteo } from "@/services/conteoService";
+import type { ItemConteo } from "@/services/conteoService";
 
-export type ScanProcessResult = {
-    handled: boolean;
-    info?: string;
-    warn?: string;
-    error?: string;
-};
+import type {
+    UseConteoScanParams,
+    ScanProcessResult,
+    ParsedScan,
+} from "./conteos/useConteoScan.types";
 
-interface Params {
-    detalles: DetalleConteo[];
-    onSumarCantidad: (itemId: number, delta: number) => Promise<void>;
-    onSelectItem: (itemId: number | null) => void;
-    onResetBusquedaManual: () => void;
-    onScanApplied?: (
-        itemId: number,
-        value: number,
-        opts?: { mode: "sum" | "replace" }
-    ) => void;
-
-}
-
-type ParsedScan = {
-    raw: string;
-    codigoItem: string;
-    lote?: string;
-    loteAlt?: string;
-    orden?: string;
-    unidad?: string;
-    cantidad?: string;
-};
+import {
+    norm,
+    parseScan,
+    buildPendingKey,
+    resolveByKnownCodes,
+} from "./conteos/useConteoScan.utils";
 
 export const useConteoScan = ({
                                   detalles,
@@ -37,98 +20,12 @@ export const useConteoScan = ({
                                   onSelectItem,
                                   onResetBusquedaManual,
                                   onScanApplied,
-                              }: Params) => {
+                              }: UseConteoScanParams) => {
     const [modalOpen, setModalOpen] = useState(false);
     const [candidates, setCandidates] = useState<ItemConteo[]>([]);
     const [ubicSelected, setUbicSelected] = useState<string | null>(null);
     const [pendingInc, setPendingInc] = useState<number>(1);
     const [pendingKey, setPendingKey] = useState<string>("");
-
-    const norm = (raw: string) => (raw ?? "").replace(/\r?\n/g, "").trim();
-    const round4 = (n: number) => Math.round(n * 10000) / 10000;
-
-    const parseCantidadNumber = (rawQty?: string): number | null => {
-        const s0 = (rawQty ?? "").trim();
-        if (!s0) return null;
-        const s = s0.replace(",", ".");
-        const n = Number(s);
-        if (!Number.isFinite(n)) return null;
-        const r = round4(n);
-        return r < 0 ? 0 : r;
-    };
-
-    const getIncrementoFromScan = (p: ParsedScan): number | null => {
-        const byCantidad = parseCantidadNumber(p.cantidad);
-        if (byCantidad !== null) return byCantidad;
-        const byUnidad = parseCantidadNumber(p.unidad);
-        if (byUnidad !== null) return byUnidad;
-        return null;
-    };
-
-    const parseScan = (raw: string): ParsedScan => {
-        const cleaned = norm(raw);
-        const compact = cleaned.replace(/\s+/g, "");
-        const digitsOnly = compact.replace(/\D/g, "");
-
-        if (digitsOnly.length === 20) {
-            const codigoItem = digitsOnly.slice(0, 6);
-            const lote = digitsOnly.slice(6, 12);
-            const orden = digitsOnly.slice(12, 18);
-            const unidad = digitsOnly.slice(18, 20);
-            return { raw: cleaned, codigoItem, lote, orden, unidad, cantidad: unidad };
-        }
-
-        if (digitsOnly.length >= 20) {
-            const codeLen = 7;
-            const restLen = digitsOnly.length - codeLen;
-            if (restLen > 12) {
-                const codigoItem = digitsOnly.slice(0, codeLen);
-                const lote = digitsOnly.slice(codeLen, codeLen + 6);
-                const orden = digitsOnly.slice(codeLen + 6, codeLen + 12);
-                const cantidad = digitsOnly.slice(codeLen + 12);
-                return { raw: cleaned, codigoItem, lote, orden, cantidad };
-            }
-        }
-
-        const mIdx = compact.toLowerCase().indexOf("m");
-        if (mIdx > 0) {
-            const left = compact.slice(0, mIdx);
-            const right = compact.slice(mIdx + 1);
-            const itemDigits = left.replace(/\D/g, "");
-            const rightDigits = right.replace(/[^\d.]/g, "");
-
-            const loteDigits = rightDigits.slice(0, 6).replace(/\D/g, "");
-            const ordenDigits = rightDigits.slice(6, 12).replace(/\D/g, "");
-            const cantidad = rightDigits.slice(12);
-
-            const lote = loteDigits ? `m${loteDigits}` : undefined;
-            const loteAlt = loteDigits || undefined;
-
-            return {
-                raw: cleaned,
-                codigoItem: itemDigits || digitsOnly || cleaned,
-                lote,
-                loteAlt,
-                orden: ordenDigits || undefined,
-                cantidad: cantidad || undefined,
-            };
-        }
-
-        if (digitsOnly.length >= 1) {
-            return { raw: cleaned, codigoItem: digitsOnly.slice(0, 7) };
-        }
-
-        return { raw: cleaned, codigoItem: cleaned };
-    };
-
-    const buildPendingKey = (p: ParsedScan) => {
-        const code = (p.codigoItem || "").trim();
-        if (!code) return "";
-        const lote = (p.lote || "").trim();
-        const loteAlt = (p.loteAlt || "").trim();
-        const loteShow = lote || loteAlt;
-        return loteShow ? `${code} · Lote ${loteShow}` : code;
-    };
 
     const buscarMatches = (p: ParsedScan) => {
         const code = (p.codigoItem || "").trim();
@@ -153,7 +50,12 @@ export const useConteoScan = ({
             const byLote = filtered.filter((it) => {
                 const itLote = (it.lote || "").toString().trim();
                 if (!itLote) return false;
-                return itLote === lote || itLote === loteAlt || itLote === `m${loteAlt}` || itLote === `m${lote}`;
+                return (
+                    itLote === lote ||
+                    itLote === loteAlt ||
+                    itLote === `m${loteAlt}` ||
+                    itLote === `m${lote}`
+                );
             });
             if (byLote.length > 0) filtered = byLote;
         }
@@ -187,69 +89,6 @@ export const useConteoScan = ({
         }
         return Array.from(set).sort((a, b) => b.length - a.length);
     }, [allItems]);
-
-    const resolveByKnownCodes = (raw: string): ParsedScan | null => {
-        const cleaned = norm(raw);
-        if (!cleaned) return null;
-
-        const compact = cleaned.replace(/\s+/g, "");
-        const digits = compact.replace(/\D/g, "");
-
-        let best: string | null = null;
-        let mode: "compact" | "digits" = "compact";
-
-        for (const code of knownCodes) {
-            if (compact.startsWith(code)) {
-                best = code;
-                mode = "compact";
-                break;
-            }
-            if (digits.startsWith(code)) {
-                best = code;
-                mode = "digits";
-                break;
-            }
-        }
-
-        if (!best) return null;
-
-        if (mode === "compact") {
-            const rest = compact.slice(best.length);
-            const m = rest.match(/(\d+(?:[.,]\d+)?)$/);
-            const qty = m?.[1] ?? undefined;
-
-            let lote: string | undefined;
-            let orden: string | undefined;
-            const digitsRest = digits.slice(best.length);
-            if (digitsRest.length >= 12) {
-                lote = digitsRest.slice(0, 6);
-                orden = digitsRest.slice(6, 12);
-            }
-
-            return {
-                raw: cleaned,
-                codigoItem: best,
-                lote,
-                orden,
-                cantidad: qty ? qty.replace(",", ".") : undefined,
-            };
-        }
-
-        const restDigits = digits.slice(best.length);
-        let lote: string | undefined;
-        let orden: string | undefined;
-        let cantidad: string | undefined;
-
-        if (restDigits.length >= 12) {
-            lote = restDigits.slice(0, 6);
-            orden = restDigits.slice(6, 12);
-            cantidad = restDigits.slice(12) || undefined;
-        } else {
-            cantidad = restDigits || undefined;
-        }
-
-        return { raw: cleaned, codigoItem: best, lote, orden, cantidad };
-    };
 
     const groupByUbicacion = useMemo(() => {
         const map = new Map<string, ItemConteo[]>();
@@ -308,23 +147,27 @@ export const useConteoScan = ({
         }
     };
 
-    const procesarCodigo = async (raw: string, incremento: number): Promise<ScanProcessResult> => {
+    const procesarCodigo = async (
+        raw: string,
+        incremento: number
+    ): Promise<ScanProcessResult> => {
         const fallbackInc = Number(incremento);
         if (!Number.isFinite(fallbackInc) || fallbackInc <= 0) {
-            return { handled: true, warn: "La cantidad a sumar debe ser mayor a 0." };
+            return { handled: true, applied: false, warn: "La cantidad a sumar debe ser mayor a 0." };
         }
 
         if (modalOpen) {
-            return { handled: true, warn: "Selecciona la ubicación/fila en pantalla." };
+            return { handled: true, applied: false, warn: "Selecciona la ubicación/fila en pantalla." };
         }
 
-        if (detalles.length === 0) return { handled: true };
+        if (detalles.length === 0) return { handled: true, applied: false };
 
         const rawClean = raw.replace(/\s+/g, "");
 
         let cantidadDetectada: number | null = null;
         let codigoDetectado = rawClean;
 
+        // tu lógica actual de "und estiba" (se conserva tal cual)
         if (rawClean.length >= 19) {
             const codProd = rawClean.slice(0, 7);
             const undEstibaStr = rawClean.slice(19);
@@ -338,12 +181,12 @@ export const useConteoScan = ({
 
         let scanned = parseScan(codigoDetectado);
         let code = norm(scanned.codigoItem);
-        if (!code) return { handled: true };
+        if (!code) return { handled: true, applied: false };
 
         let matches = buscarMatches(scanned);
 
         if (matches.length === 0) {
-            const alt = resolveByKnownCodes(codigoDetectado);
+            const alt = resolveByKnownCodes(codigoDetectado, knownCodes);
             if (alt) {
                 scanned = alt;
                 code = norm(scanned.codigoItem);
@@ -361,22 +204,28 @@ export const useConteoScan = ({
 
             if (hasEmbeddedQty && onScanApplied) {
                 onScanApplied(item.id, inc, { mode: "replace" });
-                return { handled: true };
+                return { handled: true, applied: true };
             }
 
             await onSumarCantidad(item.id, inc);
-            return { handled: true };
+            return { handled: true, applied: true };
         }
 
         if (matches.length > 1) {
-            openModal(matches, inc, code);
-            return { handled: true, info: "Ítem en varias ubicaciones. Selecciona la ubicación." };
+            openModal(matches, inc, buildPendingKey(scanned) || code);
+            return {
+                handled: true,
+                applied: false,
+                info: "Ítem en varias ubicaciones. Selecciona la ubicación.",
+            };
         }
 
-        return { handled: true, warn: `Código ítem no encontrado: ${code}` };
+        return { handled: true, applied: false, warn: `Código ítem no encontrado: ${code}` };
     };
 
-    const filasDeUbicacion = ubicSelected ? groupByUbicacion.map.get(ubicSelected) ?? [] : [];
+    const filasDeUbicacion = ubicSelected
+        ? groupByUbicacion.map.get(ubicSelected) ?? []
+        : [];
 
     return {
         modalOpen,

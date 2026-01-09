@@ -8,12 +8,13 @@ import OperacionForm from "@/components/inventario/OperacionForm";
 
 interface ErroresForm {
     fecha?: string;
+    gruposIds?: string;
 }
 
 interface OperacionCrearProps {
     gruposDisponibles: GrupoConteo[];
     onCreated: () => void;
-    conteoForzado?: number; // <-- EXCEPCIÓN: si viene (ej 3), se fuerza
+    conteoForzado?: number;
 }
 
 type EnlaceGrupo = {
@@ -44,8 +45,8 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
     const [errores, setErrores] = useState<ErroresForm>({});
     const [loading, setLoading] = useState(false);
     const [enlacesOperacion, setEnlacesOperacion] = useState<EnlacesOperacion | null>(null);
+    const [submitAttempted, setSubmitAttempted] = useState(false);
 
-    // Si el componente se monta con conteoForzado (ej al abrir modal), fuerza el conteo en el form.
     useEffect(() => {
         if (conteoForzadoValido == null) return;
         setForm((prev) => ({
@@ -58,7 +59,6 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
 
     const canCreate = useMemo(() => {
         const hasFecha = !!form.fecha;
-
         const conteoOk =
             conteoForzadoValido != null
                 ? Number(form.numeroConteo) === Number(conteoForzadoValido)
@@ -69,10 +69,12 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
         return hasFecha && conteoOk && hasGrupos && !loading;
     }, [form.fecha, form.numeroConteo, form.gruposIds, loading, conteoForzadoValido]);
 
-    const gruposWarning =
-        !Array.isArray(form.gruposIds) || form.gruposIds.length === 0
-            ? "Debe seleccionar al menos un grupo para crear la operación."
-            : "";
+    const faltantes = useMemo(() => {
+        const f: string[] = [];
+        if (!form.fecha) f.push("Fecha de corte");
+        if (!Array.isArray(form.gruposIds) || form.gruposIds.length === 0) f.push("Grupos responsables");
+        return f;
+    }, [form.fecha, form.gruposIds]);
 
     const limpiarErrorCampo = (campo: keyof ErroresForm) => {
         setErrores((prev) => {
@@ -89,14 +91,12 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
         setForm((prev) => ({
             ...prev,
             bodega: "11",
-            // si viene conteo forzado, no permitimos que lo cambien por un input accidental
             numeroConteo: conteoForzadoValido ?? prev.numeroConteo,
             [name]: value,
         }));
     };
 
     const handleNumeroConteoChange = (e: ChangeEvent<HTMLSelectElement>) => {
-        // En modo excepción (conteo forzado) NO se permite cambiar.
         if (conteoForzadoValido != null) return;
 
         const valor = Number(e.target.value) || 1;
@@ -110,16 +110,16 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
     const toggleGrupo = (grupoId: number, checked: boolean) => {
         setForm((prev) => {
             const actual = prev.gruposIds || [];
-            if (checked) {
-                if (actual.includes(grupoId)) return prev;
-                return { ...prev, bodega: "11", gruposIds: [...actual, grupoId] };
-            }
-            return {
-                ...prev,
-                bodega: "11",
-                gruposIds: actual.filter((id) => id !== grupoId),
-            };
+            const next = checked
+                ? actual.includes(grupoId)
+                    ? actual
+                    : [...actual, grupoId]
+                : actual.filter((id) => id !== grupoId);
+
+            return { ...prev, bodega: "11", gruposIds: next };
         });
+
+        if (checked || (!checked && (form.gruposIds || []).length > 1)) limpiarErrorCampo("gruposIds");
     };
 
     const copiar = async (texto: string) => {
@@ -132,18 +132,18 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
     };
 
     const handleCrear = async () => {
-        const nuevosErrores: ErroresForm = {};
+        setSubmitAttempted(true);
 
+        const nuevosErrores: ErroresForm = {};
         if (!form.fecha) nuevosErrores.fecha = "La fecha de corte es obligatoria.";
+        if (!form.gruposIds || form.gruposIds.length === 0)
+            nuevosErrores.gruposIds = "Debe seleccionar al menos un grupo.";
 
         if (Object.keys(nuevosErrores).length > 0) {
             setErrores(nuevosErrores);
             return;
         }
 
-        // Validación de conteo:
-        // - normal: 1 o 2
-        // - excepción: exactamente el forzado (ej 3)
         const nConteo = Number(form.numeroConteo);
         const conteoValido =
             conteoForzadoValido != null ? nConteo === Number(conteoForzadoValido) : [1, 2, 3].includes(nConteo);
@@ -152,13 +152,8 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
             if (conteoForzadoValido != null) {
                 toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creación.`);
             } else {
-                toast.warning("Debes seleccionar un número de conteo válido (1 o 2).");
+                toast.warning("Debes seleccionar un número de conteo válido (1, 2 o 3).");
             }
-            return;
-        }
-
-        if (!form.gruposIds || form.gruposIds.length === 0) {
-            toast.warning("Debe seleccionar al menos un grupo para crear la operación.");
             return;
         }
 
@@ -213,6 +208,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
                 gruposIds: [],
             }));
             setErrores({});
+            setSubmitAttempted(false);
             onCreated();
         } catch (error: any) {
             console.error(error);
@@ -229,9 +225,14 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
 
     return (
         <div className="space-y-3">
-            {gruposWarning ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    {gruposWarning}
+            {submitAttempted && faltantes.length > 0 ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                    <div className="font-semibold">Faltan datos para crear la operación</div>
+                    <ul className="mt-1 list-disc pl-5 text-xs">
+                        {faltantes.map((x) => (
+                            <li key={x}>{x}</li>
+                        ))}
+                    </ul>
                 </div>
             ) : null}
 
@@ -243,7 +244,8 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
                 onNumeroConteoChange={handleNumeroConteoChange}
                 conteoForzado={conteoForzadoValido ?? undefined}
                 onCrear={handleCrear}
-                loading={!canCreate}
+                loading={loading}
+                canCreate={canCreate}
                 errores={errores}
             />
 

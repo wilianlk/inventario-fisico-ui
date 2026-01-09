@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
-import { DetalleConteo } from "@/services/conteoService";
 import {
     generarDI81,
     obtenerConteosFinalizados,
@@ -9,7 +8,12 @@ import {
 } from "@/services/consolidacionService";
 import ConsolidacionFilters from "@/components/consolidacion/ConsolidacionFilters";
 import ConsolidacionTable from "@/components/consolidacion/ConsolidacionTable";
-import { applyFilters, buildConsolidado, ConsolidacionFilters as FType } from "@/hooks/consolidacion.logic";
+import {
+    applyFilters,
+    buildConsolidado,
+    ConsolidacionFilters as FType,
+    BackendConsolidadoItem,
+} from "@/hooks/consolidacion.logic";
 
 type FinalizarModalProps = {
     open: boolean;
@@ -26,9 +30,7 @@ const FinalizarModal = ({ open, loading, onClose, onConfirm }: FinalizarModalPro
             <div className="absolute inset-0 bg-black/40" onClick={() => (!loading ? onClose() : null)} />
             <div className="relative w-full max-w-md rounded-xl bg-white shadow-lg p-5">
                 <h3 className="text-base font-semibold text-slate-900">Confirmar finalización</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                    ¿Está seguro de finalizar el inventario? Esta acción no se puede deshacer.
-                </p>
+                <p className="mt-2 text-sm text-slate-600">¿Está seguro de finalizar el inventario? Esta acción no se puede deshacer.</p>
 
                 <div className="mt-5 flex justify-end gap-2">
                     <button
@@ -55,7 +57,7 @@ const FinalizarModal = ({ open, loading, onClose, onConfirm }: FinalizarModalPro
 };
 
 const Consolidacion = () => {
-    const [detalles, setDetalles] = useState<DetalleConteo[]>([]);
+    const [items, setItems] = useState<BackendConsolidadoItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const [filters, setFilters] = useState<FType>({
@@ -78,36 +80,37 @@ const Consolidacion = () => {
 
     const didInit = useRef(false);
 
-    const mapConteosFinalizadosToDetalle = (data: any[]): DetalleConteo[] => {
-        return (data ?? []).map((x: any) => {
-            const conteo = x?.conteo ?? x?.Conteo ?? {};
-            const items = x?.items ?? x?.Items ?? [];
+    const errorMsg = (e: any, fallback: string) => {
+        const data = e?.response?.data;
 
-            const grupoNombre = conteo?.nombreGrupo ?? conteo?.NombreGrupo ?? "";
+        if (typeof data === "string" && data.trim()) return data;
+        if (data?.mensaje) return String(data.mensaje);
 
-            return {
-                operacionId: Number(conteo?.operacionId ?? conteo?.OperacionId ?? 0),
-                grupoId: Number(conteo?.grupoId ?? conteo?.GrupoId ?? 0),
-                grupo: String(grupoNombre ?? "").trim(),
-                conteoId: Number(conteo?.id ?? conteo?.Id ?? 0),
-                numeroConteo: Number(conteo?.numeroConteo ?? conteo?.NumeroConteo ?? 0),
-                estadoConteo: String(conteo?.estado ?? conteo?.Estado ?? "").trim(),
-                items: Array.isArray(items) ? items : [],
-            } as any;
-        });
+        if (data?.detail) return String(data.detail);
+        if (data?.title) return String(data.title);
+
+        const errors = data?.errors;
+        if (errors && typeof errors === "object") {
+            const firstKey = Object.keys(errors)[0];
+            const firstVal = firstKey ? errors[firstKey] : null;
+            if (Array.isArray(firstVal) && firstVal.length > 0) return String(firstVal[0]);
+        }
+
+        if (e?.message) return String(e.message);
+        return fallback;
     };
 
-    const getOperacionIdsFrom = (arr: any[]): number[] => {
+    const getOperacionIdsFromItems = (arr: any[]): number[] => {
         const ids = new Set<number>();
-        for (const d of arr as any[]) {
-            const id = d?.operacionId ?? d?.OperacionId;
+        for (const x of arr ?? []) {
+            const id = x?.operacionId ?? x?.OperacionId;
             const n = id !== null && id !== undefined ? Number(id) : 0;
             if (Number.isFinite(n) && n > 0) ids.add(n);
         }
         return Array.from(ids);
     };
 
-    const getOperacionIds = (): number[] => getOperacionIdsFrom(detalles as any[]);
+    const getOperacionIds = (): number[] => getOperacionIdsFromItems(items as any[]);
 
     const descargarBlob = (blob: Blob, filename: string) => {
         const url = window.URL.createObjectURL(blob);
@@ -129,7 +132,7 @@ const Consolidacion = () => {
     const validarFinalizada = async (operacionId: number): Promise<boolean> => {
         try {
             const resp = await consolidacionFinalizada(operacionId);
-            return Boolean((resp.data as any)?.finalizada);
+            return Boolean(resp.data?.finalizada);
         } catch (e) {
             console.error(e);
             toast.error(`No se pudo validar el estado de la consolidación (operación ${operacionId}).`);
@@ -141,11 +144,10 @@ const Consolidacion = () => {
         setLoading(true);
         try {
             const resp = await obtenerConteosFinalizados();
-            const data = (resp.data as any[]) ?? [];
-            const mapped = mapConteosFinalizadosToDetalle(data);
-            setDetalles(mapped);
+            const raw = (resp.data?.items ?? resp.data ?? []) as BackendConsolidadoItem[];
+            setItems(Array.isArray(raw) ? raw : []);
 
-            const ids = getOperacionIdsFrom(mapped as any[]);
+            const ids = getOperacionIdsFromItems(raw as any[]);
             if (ids.length === 1) {
                 setValidandoEstado(true);
                 const ok = await validarFinalizada(ids[0]);
@@ -157,7 +159,7 @@ const Consolidacion = () => {
         } catch (e) {
             console.error(e);
             toast.error("No se pudo cargar la consolidación.");
-            setDetalles([]);
+            setItems([]);
             setFinalizada(false);
         } finally {
             setLoading(false);
@@ -171,7 +173,7 @@ const Consolidacion = () => {
         void cargar();
     }, []);
 
-    const baseRows = useMemo(() => buildConsolidado(detalles), [detalles]);
+    const baseRows = useMemo(() => buildConsolidado(items), [items]);
     const rows = useMemo(() => applyFilters(baseRows, filters), [baseRows, filters]);
 
     const resumen = useMemo(() => {
@@ -217,19 +219,14 @@ const Consolidacion = () => {
             const fin = (resp?.data as any)?.operacionesFinalizadas ?? [];
 
             if (Array.isArray(fin) && fin.length > 0) {
-                toast.success(
-                    fin.length === 1
-                        ? "Consolidación finalizada."
-                        : `Consolidación finalizada. Operaciones: ${fin.length}.`
-                );
+                toast.success(fin.length === 1 ? "Consolidación finalizada." : `Consolidación finalizada. Operaciones: ${fin.length}.`);
                 setOpenFinalizar(false);
                 void cargar();
             } else {
                 toast.error("No se pudo finalizar la consolidación.");
             }
         } catch (e: any) {
-            const msg = e?.response?.data?.mensaje || e?.message || "No se pudo finalizar la consolidación.";
-            toast.error(msg);
+            toast.error(errorMsg(e, "No se pudo finalizar la consolidación."));
         } finally {
             setFinalizando(false);
         }
@@ -251,9 +248,7 @@ const Consolidacion = () => {
         const operacionId = operacionIds[0];
 
         if (!finalizada) {
-            toast.error(
-                `Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`
-            );
+            toast.error(`Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`);
             return;
         }
 
@@ -262,8 +257,7 @@ const Consolidacion = () => {
             const filename = nombreDesdeHeaders(resp.headers, `DI81_${operacionId}.txt`);
             descargarBlob(resp.data, filename);
         } catch (e: any) {
-            const msg = e?.response?.data?.mensaje || e?.message || "No se pudo generar el archivo.";
-            toast.error(msg);
+            toast.error(errorMsg(e, "No se pudo generar el archivo."));
         }
     };
 
@@ -314,12 +308,7 @@ const Consolidacion = () => {
 
             <ConsolidacionTable rows={rows} />
 
-            <FinalizarModal
-                open={openFinalizar}
-                loading={finalizando}
-                onClose={() => setOpenFinalizar(false)}
-                onConfirm={finalizar}
-            />
+            <FinalizarModal open={openFinalizar} loading={finalizando} onClose={() => setOpenFinalizar(false)} onConfirm={finalizar} />
         </section>
     );
 };

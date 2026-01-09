@@ -1,5 +1,3 @@
-import { DetalleConteo, ItemConteo } from "@/services/conteoService";
-
 export type ConteoSlot = 1 | 2 | 3;
 
 export type ConsolidadoRow = {
@@ -27,6 +25,8 @@ export type ConsolidadoRow = {
     reconteoTexto: "OK !" | "Recontar" | "";
 
     capturaFinal: number | null;
+
+    bloques: number[];
 };
 
 export type ConsolidacionFilters = {
@@ -41,6 +41,32 @@ export type ConsolidacionFilters = {
     soloRecontar: boolean;
 };
 
+export type BackendConsolidadoItem = {
+    id: { bloques: number[] };
+    codigoItem: unknown;
+    prod: unknown;
+    udm: unknown;
+    etiqueta: unknown;
+    lote: unknown;
+    ubicacion: unknown;
+    bodega: unknown;
+    cmpy: unknown;
+    costo: unknown;
+    cantidadSistema: unknown;
+    cantidadConteo1: unknown;
+    cantidadConteo2: unknown;
+    cantidadConteo3: unknown;
+    cantidadFinal: unknown;
+    descripcion?: unknown;
+    grupo?: unknown;
+};
+
+export type BackendConsolidadoResponse = {
+    items: BackendConsolidadoItem[];
+};
+
+type BackendInput = BackendConsolidadoItem[] | BackendConsolidadoResponse;
+
 const norm = (v: unknown) => String(v ?? "").trim();
 
 const toNumOrNull = (v: unknown): number | null => {
@@ -48,18 +74,6 @@ const toNumOrNull = (v: unknown): number | null => {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
 };
-
-const getEtiqueta = (it: unknown) => norm((it as any)?.etiqueta);
-const getLote = (it: unknown) => norm((it as any)?.lote);
-
-const getCosto = (it: unknown) => {
-    const n = Number((it as any)?.costo);
-    return Number.isFinite(n) ? n : null;
-};
-
-const getCongelada = (it: unknown) => toNumOrNull((it as any)?.cantidadSistema);
-
-const mergeIfEmpty = (current: string, next: string) => (current ? current : next);
 
 const GROUP_SEP = " | ";
 
@@ -70,101 +84,113 @@ const mergeGroup = (current: string, next: string) => {
     if (!n) return c;
     if (c === n) return c;
 
-    const set = new Set(c.split(GROUP_SEP).map((x: string) => x.trim()).filter(Boolean));
+    const set = new Set(c.split(GROUP_SEP).map((x) => x.trim()).filter(Boolean));
     set.add(n);
-
     return Array.from(set).join(GROUP_SEP);
 };
 
-export const buildConsolidado = (detalles: DetalleConteo[]): ConsolidadoRow[] => {
-    const map = new Map<string, ConsolidadoRow>();
+const calcularCapturaFinal = (conteo1: number | null, conteo2: number | null, conteo3: number | null): number | null => {
+    if (conteo3 !== null && conteo3 !== undefined) return conteo3;
+    if (conteo1 !== null && conteo2 !== null && conteo1 === conteo2) return conteo2;
+    return null;
+};
 
-    for (const det of detalles) {
-        const nConteo = det.numeroConteo as ConteoSlot;
-        const grupoNombre = norm((det as any).grupo);
+const unwrapItems = (input: BackendInput): BackendConsolidadoItem[] => {
+    if (Array.isArray(input)) return input;
+    const items = (input as any)?.items;
+    return Array.isArray(items) ? items : [];
+};
 
-        for (const it of det.items as ItemConteo[]) {
-            const codigo = norm((it as any).codigoItem);
-            const ubic = norm((it as any).ubicacion);
-            const lote = getLote(it);
-            if (!codigo || !ubic) continue;
+export const buildConsolidado = (input: BackendInput): ConsolidadoRow[] => {
+    const rows = unwrapItems(input);
+    const out: ConsolidadoRow[] = [];
 
-            const loteKey = lote ? lote : "__SIN_LOTE__";
-            const key = `${ubic}||${codigo}||${loteKey}`;
+    for (const it of rows) {
+        const codigoItem = norm(it.codigoItem);
+        const ubicacion = norm(it.ubicacion);
+        const lote = norm(it.lote);
 
-            const etiqueta = getEtiqueta(it);
-            const costo = getCosto(it);
-            const congelada = getCongelada(it);
+        if (!codigoItem || !ubicacion) continue;
 
-            const qty = toNumOrNull((it as any).cantidadContada);
-            const desc = norm((it as any).descripcion);
-            const udm = norm((it as any).udm);
+        const loteKey = lote ? lote : "__SIN_LOTE__";
+        const key = `${ubicacion}||${codigoItem}||${loteKey}`;
 
-            let row = map.get(key);
-            if (!row) {
-                row = {
-                    key,
-                    etiqueta,
-                    codigoItem: codigo,
-                    descripcion: desc,
-                    udm,
-                    ubicacion: ubic,
-                    lote,
-                    costoUnitario: costo,
+        const conteo1 = toNumOrNull(it.cantidadConteo1);
+        const conteo2 = toNumOrNull(it.cantidadConteo2);
+        const conteo3 = toNumOrNull(it.cantidadConteo3);
 
-                    congelada,
+        const costoUnitario = toNumOrNull(it.costo);
+        const congelada = toNumOrNull(it.cantidadSistema);
 
-                    grupoC1: "",
-                    grupoC2: "",
-                    grupoC3: "",
+        const etiqueta = norm(it.etiqueta);
+        const udm = norm(it.udm);
+        const descripcion = norm(it.descripcion);
 
-                    conteo1: null,
-                    conteo2: null,
-                    conteo3: null,
+        const bloques = Array.isArray((it as any)?.id?.bloques) ? (it as any).id.bloques : [];
 
-                    ok12: null,
-                    reconteoTexto: "",
+        let ok12: boolean | null = null;
+        let reconteoTexto: ConsolidadoRow["reconteoTexto"] = "";
 
-                    capturaFinal: null,
-                };
-                map.set(key, row);
+        if (conteo1 !== null && conteo2 !== null) {
+            if (conteo1 === conteo2) {
+                ok12 = true;
+                reconteoTexto = "OK !";
             } else {
-                row.etiqueta = mergeIfEmpty(row.etiqueta, etiqueta);
-                row.descripcion = mergeIfEmpty(row.descripcion, desc);
-                row.udm = mergeIfEmpty(row.udm, udm);
-                if (row.costoUnitario === null && costo !== null) row.costoUnitario = costo;
-                if (row.congelada === null && congelada !== null) row.congelada = congelada;
+                ok12 = false;
+                reconteoTexto = "Recontar";
             }
-
-            if (nConteo === 1) {
-                row.conteo1 = qty;
-                row.grupoC1 = mergeGroup(row.grupoC1, grupoNombre);
-            } else if (nConteo === 2) {
-                row.conteo2 = qty;
-                row.grupoC2 = mergeGroup(row.grupoC2, grupoNombre);
-            } else if (nConteo === 3) {
-                row.conteo3 = qty;
-                row.grupoC3 = mergeGroup(row.grupoC3, grupoNombre);
-            }
-        }
-    }
-
-    const out = Array.from(map.values());
-
-    for (const r of out) {
-        if (r.conteo1 === null || r.conteo2 === null) {
-            r.ok12 = null;
-            r.reconteoTexto = "";
-            r.capturaFinal = null;
-        } else if (r.conteo1 === r.conteo2) {
-            r.ok12 = true;
-            r.reconteoTexto = "OK !";
-            r.capturaFinal = r.conteo2;
         } else {
-            r.ok12 = false;
-            r.reconteoTexto = "Recontar";
-            r.capturaFinal = r.conteo3 !== null ? r.conteo3 : null;
+            ok12 = null;
+            reconteoTexto = "";
         }
+
+        const cantidadFinalBackend = toNumOrNull(it.cantidadFinal);
+        const capturaFinal =
+            cantidadFinalBackend !== null ? cantidadFinalBackend : calcularCapturaFinal(conteo1, conteo2, conteo3);
+
+        let grupoC1 = "";
+        let grupoC2 = "";
+        let grupoC3 = "";
+
+        const grupoBackend = norm((it as any)?.grupo);
+        if (grupoBackend) {
+            if (conteo1 !== null) grupoC1 = mergeGroup(grupoC1, grupoBackend);
+            if (conteo2 !== null) grupoC2 = mergeGroup(grupoC2, grupoBackend);
+            if (conteo3 !== null) grupoC3 = mergeGroup(grupoC3, grupoBackend);
+        } else {
+            if (conteo1 !== null) grupoC1 = "C1";
+            if (conteo2 !== null) grupoC2 = "C2";
+            if (conteo3 !== null) grupoC3 = "C3";
+        }
+
+        out.push({
+            key,
+
+            etiqueta,
+            codigoItem,
+            descripcion: descripcion || "",
+            udm,
+            ubicacion,
+            lote,
+            costoUnitario,
+
+            congelada,
+
+            grupoC1,
+            grupoC2,
+            grupoC3,
+
+            conteo1,
+            conteo2,
+            conteo3,
+
+            ok12,
+            reconteoTexto,
+
+            capturaFinal,
+
+            bloques,
+        });
     }
 
     out.sort(

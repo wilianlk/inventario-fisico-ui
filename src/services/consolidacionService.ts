@@ -1,5 +1,6 @@
 import api from "./api";
 import type { AxiosResponse } from "axios";
+import type { BackendConsolidadoItem } from "@/hooks/consolidacion.logic";
 
 export interface ConteoFinalizadoItem {
     id: number;
@@ -35,16 +36,29 @@ export interface ConsolidacionCierre {
     operacionesFinalizadas: number[];
 }
 
+export type ConteosFinalizadosResponse = {
+    items: BackendConsolidadoItem[];
+};
+
 export const obtenerConteosFinalizados = () =>
-    api.get<ConteoFinalizado[]>(`/consolidacion/conteos-finalizados`);
+    api.get<ConteosFinalizadosResponse>(
+        `/consolidacion/conteos-finalizados`
+    );
 
 export const finalizarOperaciones = (data: ConsolidacionCierre) =>
-    api.post<ConsolidacionCierre>(`/consolidacion/finalizar`, data);
+    api.post<ConsolidacionCierre>(
+        `/consolidacion/finalizar`,
+        data
+    );
 
 export const generarDI81 = (operacionId: number) =>
-    api.post<Blob>(`/consolidacion/generar-di81/${operacionId}`, null, {
-        responseType: "blob",
-    }) as Promise<AxiosResponse<Blob>>;
+    api.post<Blob>(
+        `/consolidacion/generar-di81/${operacionId}`,
+        null,
+        { responseType: "blob" }
+    ) as Promise<AxiosResponse<Blob>>;
 
 export const consolidacionFinalizada = (operacionId: number) =>
-    api.get<boolean>(`/consolidacion/consolidacion-finalizada/${operacionId}`);
+    api.get<{ finalizada: boolean }>(
+        `/consolidacion/consolidacion-finalizada/${operacionId}`
+    );
