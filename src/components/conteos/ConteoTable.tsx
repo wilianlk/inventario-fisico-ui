@@ -51,7 +51,7 @@ interface Props {
     scanApply?: ScanApply;
 }
 
-const DEBOUNCE_MS = 650;
+const DEBOUNCE_MS = 200;
 
 const ConteoTable = ({
                          items,
@@ -77,6 +77,8 @@ const ConteoTable = ({
     const dirtyByIdRef = useRef<Record<number, boolean>>({});
     const debounceTimersRef = useRef<Record<number, number>>({});
     const lastScanApplyAtRef = useRef<Record<number, number>>({});
+
+    const partsRef = useRef<Record<number, Parts>>({});
 
     const baseNoEncontradoMap = useMemo(() => {
         const m: Record<number, boolean> = {};
@@ -136,12 +138,18 @@ const ConteoTable = ({
 
                 const existing = next[it.id];
                 if (!existing) {
-                    next[it.id] = { unidades: "", paquetes: "", saldos: "", total: base };
+                    const created = { unidades: "", paquetes: "", saldos: "", total: base };
+                    next[it.id] = created;
+                    partsRef.current[it.id] = created;
                     continue;
                 }
 
                 if (!dirtyByIdRef.current[it.id]) {
-                    next[it.id] = { ...existing, total: base };
+                    const updated = { ...existing, total: base };
+                    next[it.id] = updated;
+                    partsRef.current[it.id] = updated;
+                } else {
+                    partsRef.current[it.id] = existing;
                 }
             }
             return next;
@@ -193,15 +201,24 @@ const ConteoTable = ({
     };
 
     const getParts = (item: ItemConteo): Parts => {
+        const fromRef = partsRef.current[item.id];
+        if (fromRef) return fromRef;
+
         const p = partsById[item.id];
-        if (p) return p;
+        if (p) {
+            partsRef.current[item.id] = p;
+            return p;
+        }
 
         const norm = normalizeIncoming(item.id, (item as any).cantidadContada);
         const base = norm === null ? "" : String(norm);
-        return { unidades: "", paquetes: "", saldos: "", total: base };
+        const created = { unidades: "", paquetes: "", saldos: "", total: base };
+        partsRef.current[item.id] = created;
+        return created;
     };
 
     const setPart = (id: number, next: Parts) => {
+        partsRef.current[id] = next;
         setPartsById((prev) => ({ ...prev, [id]: next }));
     };
 
@@ -236,7 +253,7 @@ const ConteoTable = ({
         if (locked || !editable) return;
         if ((item as any).noEncontrado === true) return;
 
-        const p = getParts(item);
+        const p = partsRef.current[item.id] ?? getParts(item);
         const total = getTotalDisplay(p);
 
         const incomingNorm = normalizeIncoming(item.id, (item as any).cantidadContada);
@@ -339,8 +356,7 @@ const ConteoTable = ({
     const handleKeyDownTotal = (e: KeyboardEvent<HTMLInputElement>, item: ItemConteo) => {
         if (e.key === "Enter") {
             e.preventDefault();
-            clearDebounce(item.id);
-            void guardarSiCambia(item);
+            (e.currentTarget as HTMLInputElement).blur();
         }
     };
 
