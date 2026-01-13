@@ -46,6 +46,8 @@ interface Props {
 
     setTotalRef: (id: number, el: HTMLInputElement | null) => void;
     renderRowState: (rs: RowState | undefined) => React.ReactNode;
+
+    onToggleNoEncontrado: (item: ItemConteo, value: boolean) => void;
 }
 
 export default function ConteoTableDesktopTable({
@@ -65,6 +67,7 @@ export default function ConteoTableDesktopTable({
                                                     onBlurTotal,
                                                     setTotalRef,
                                                     renderRowState,
+                                                    onToggleNoEncontrado,
                                                 }: Props) {
     return (
         <div className="hidden md:block overflow-x-auto">
@@ -77,6 +80,7 @@ export default function ConteoTableDesktopTable({
                         <TableHead className="whitespace-nowrap">Udm</TableHead>
                         <TableHead className="whitespace-nowrap">Ubicación</TableHead>
                         <TableHead className="whitespace-nowrap">Num. lote</TableHead>
+                        <TableHead className="whitespace-nowrap">No está</TableHead>
                         <TableHead className="whitespace-nowrap">Contada</TableHead>
                     </TableRow>
                 </TableHeader>
@@ -87,7 +91,9 @@ export default function ConteoTableDesktopTable({
                         const totalDisplay = getTotalDisplay(p);
                         const etiqueta = (((item as any).etiqueta ?? "") as string).toString().trim();
                         const rs = rowStateById[item.id];
-                        const disabled = locked || !editable;
+
+                        const noEncontrado = (item as any).noEncontrado === true;
+                        const disabled = locked || !editable || noEncontrado;
 
                         const managed = getManaged(item.id);
                         const paint = warnActive && !managed;
@@ -114,6 +120,18 @@ export default function ConteoTableDesktopTable({
                                 </TableCell>
                                 <TableCell className={`font-mono text-xs ${cellWarnBase}`}>
                                     {item.lote ? item.lote.trim() : ""}
+                                </TableCell>
+
+                                <TableCell className={`whitespace-nowrap text-xs ${cellWarnBase}`}>
+                                    <label className="inline-flex items-center gap-2 select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={noEncontrado}
+                                            onChange={(e) => onToggleNoEncontrado(item, e.target.checked)}
+                                            disabled={locked || !editable}
+                                        />
+                                        <span className="text-slate-600">No está</span>
+                                    </label>
                                 </TableCell>
 
                                 <TableCell className={`min-w-[460px] ${cellWarnRight}`}>

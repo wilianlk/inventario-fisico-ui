@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, KeyboardEvent } from "react";
-import { ItemConteo } from "@/services/conteoService";
+import { ItemConteo, actualizarNoEncontrado } from "@/services/conteoService";
 import { toast } from "react-toastify";
 
 import ConteoTableMobileCards from "@/components/conteos/ConteoTableMobileCards";
@@ -69,6 +69,8 @@ const ConteoTable = ({
     const [rowStateById, setRowStateById] = useState<Record<number, RowState>>({});
     const [locked, setLocked] = useState(false);
 
+    const [noEncontradoById, setNoEncontradoById] = useState<Record<number, boolean>>({});
+
     const lastSavedTotalRef = useRef<Record<number, number | null>>({});
     const totalRefs = useRef<Record<number, HTMLInputElement | null>>({});
     const clearSavedTimersRef = useRef<Record<number, number>>({});
@@ -76,7 +78,24 @@ const ConteoTable = ({
     const debounceTimersRef = useRef<Record<number, number>>({});
     const lastScanApplyAtRef = useRef<Record<number, number>>({});
 
-    const getManaged = (id: number) => (isManaged ? !!isManaged(id) : true);
+    const baseNoEncontradoMap = useMemo(() => {
+        const m: Record<number, boolean> = {};
+        for (const it of items) {
+            m[it.id] = (it as any).noEncontrado === true;
+        }
+        return m;
+    }, [items]);
+
+    const isNoEncontrado = (id: number) => {
+        const v = noEncontradoById[id];
+        if (typeof v === "boolean") return v;
+        return baseNoEncontradoMap[id] === true;
+    };
+
+    const getManaged = (id: number) => {
+        if (isNoEncontrado(id)) return true;
+        return isManaged ? !!isManaged(id) : true;
+    };
 
     const normalizeIncoming = (id: number, v: any): number | null => {
         if (v === null || v === undefined) return null;
@@ -149,9 +168,7 @@ const ConteoTable = ({
     const clamp0 = (n: number) => (n < 0 ? 0 : n);
 
     const anyManualFilled = (p: Parts) =>
-        (p.unidades || "").trim() !== "" ||
-        (p.paquetes || "").trim() !== "" ||
-        (p.saldos || "").trim() !== "";
+        (p.unidades || "").trim() !== "" || (p.paquetes || "").trim() !== "" || (p.saldos || "").trim() !== "";
 
     const calcularManual = (p: Parts) => {
         const uStr = (p.unidades || "").trim();
@@ -203,11 +220,7 @@ const ConteoTable = ({
 
     const extractError = (err: any): { status?: number; message: string } => {
         const status = err?.response?.status;
-        const msg =
-            err?.response?.data?.mensaje ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Error al guardar.";
+        const msg = err?.response?.data?.mensaje || err?.response?.data?.message || err?.message || "Error al guardar.";
         return { status, message: String(msg) };
     };
 
@@ -221,6 +234,7 @@ const ConteoTable = ({
 
     const guardarSiCambia = async (item: ItemConteo) => {
         if (locked || !editable) return;
+        if ((item as any).noEncontrado === true) return;
 
         const p = getParts(item);
         const total = getTotalDisplay(p);
@@ -270,16 +284,21 @@ const ConteoTable = ({
 
     const scheduleGuardarDebounced = (item: ItemConteo) => {
         if (locked || !editable) return;
+        if ((item as any).noEncontrado === true) return;
+
         clearDebounce(item.id);
 
         debounceTimersRef.current[item.id] = window.setTimeout(() => {
             if (locked || !editable) return;
+            if ((item as any).noEncontrado === true) return;
             void guardarSiCambia(item);
         }, DEBOUNCE_MS);
     };
 
     const setManualField = (item: ItemConteo, key: "unidades" | "paquetes" | "saldos", value: string) => {
         if (locked || !editable) return;
+        if ((item as any).noEncontrado === true) return;
+
         dirtyByIdRef.current[item.id] = true;
 
         const p = getParts(item);
@@ -300,6 +319,7 @@ const ConteoTable = ({
 
     const setTotalField = (item: ItemConteo, value: string) => {
         if (locked || !editable) return;
+        if ((item as any).noEncontrado === true) return;
 
         const p = getParts(item);
         if (anyManualFilled(p)) return;
@@ -335,11 +355,36 @@ const ConteoTable = ({
         );
     };
 
+    const toggleNoEncontrado = async (item: ItemConteo, value: boolean) => {
+        if (locked || !editable) return;
+
+        const prev = (item as any).noEncontrado === true;
+
+        setNoEncontradoById((p) => ({ ...p, [item.id]: value }));
+
+        if (value) {
+            onSetManaged?.(item.id, true);
+            dirtyByIdRef.current[item.id] = false;
+            clearDebounce(item.id);
+            setRowState(item.id, { status: "idle" });
+        }
+
+        try {
+            await actualizarNoEncontrado(item.id, value);
+        } catch (err) {
+            const { message } = extractError(err);
+            setNoEncontradoById((p) => ({ ...p, [item.id]: prev }));
+            toast.error(message);
+        }
+    };
+
     useEffect(() => {
         if (!scanApply) return;
         if (!editable || locked) return;
 
         const { itemId, value, mode } = scanApply;
+
+        if (isNoEncontrado(itemId)) return;
 
         const v = Number(value);
         if (!Number.isFinite(v) || v <= 0) return;
@@ -398,40 +443,41 @@ const ConteoTable = ({
     const fUbiSearch = (searchFilters.ubicacion || "").trim().toLowerCase();
 
     const filtrados = useMemo(() => {
-        return items.filter((i) => {
-            const etiqueta = (((i as any).etiqueta ?? "") as string).toString().trim().toLowerCase();
-            const codigo = (i.codigoItem || "").trim().toLowerCase();
-            const desc = (i.descripcion || "").toLowerCase();
-            const lote = (i.lote || "").trim().toLowerCase();
-            const ubic = (i.ubicacion || "").trim().toLowerCase();
+        return items
+            .filter((i) => {
+                const etiqueta = (((i as any).etiqueta ?? "") as string).toString().trim().toLowerCase();
+                const codigo = (i.codigoItem || "").trim().toLowerCase();
+                const desc = (i.descripcion || "").toLowerCase();
+                const lote = (i.lote || "").trim().toLowerCase();
+                const ubic = (i.ubicacion || "").trim().toLowerCase();
 
-            if (fEtiqueta && !etiqueta.includes(fEtiqueta)) return false;
-            if (fCodigo && !codigo.includes(fCodigo)) return false;
-            if (fDesc && !desc.includes(fDesc)) return false;
-            if (fLote && !lote.includes(fLote)) return false;
-            if (fUbiSearch && !ubic.includes(fUbiSearch)) return false;
+                if (fEtiqueta && !etiqueta.includes(fEtiqueta)) return false;
+                if (fCodigo && !codigo.includes(fCodigo)) return false;
+                if (fDesc && !desc.includes(fDesc)) return false;
+                if (fLote && !lote.includes(fLote)) return false;
+                if (fUbiSearch && !ubic.includes(fUbiSearch)) return false;
 
-            return true;
-        });
-    }, [items, fEtiqueta, fCodigo, fDesc, fLote, fUbiSearch]);
+                return true;
+            })
+            .map((i) => {
+                const v = noEncontradoById[i.id];
+                const eff = typeof v === "boolean" ? v : (i as any).noEncontrado === true;
+                return { ...(i as any), noEncontrado: eff } as ItemConteo;
+            });
+    }, [items, fEtiqueta, fCodigo, fDesc, fLote, fUbiSearch, noEncontradoById]);
 
     if (loading) {
-        return (
-            <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">
-                Cargando ítems...
-            </div>
-        );
+        return <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">Cargando ítems...</div>;
     }
 
     if (!filtrados || filtrados.length === 0) {
-        return (
-            <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">
-                No hay ítems para mostrar.
-            </div>
-        );
+        return <div className="py-6 sm:py-8 text-center text-xs sm:text-sm text-slate-500">No hay ítems para mostrar.</div>;
     }
 
     const warnActive = highlightUnmanaged === true;
+
+    const Mobile = ConteoTableMobileCards as any;
+    const Desktop = ConteoTableDesktopTable as any;
 
     return (
         <div className="w-full rounded-xl border bg-white p-3 sm:p-4 shadow-sm">
@@ -445,7 +491,7 @@ const ConteoTable = ({
                 </div>
             ) : null}
 
-            <ConteoTableMobileCards
+            <Mobile
                 items={filtrados}
                 selectedItemId={selectedItemId ?? null}
                 warnActive={warnActive}
@@ -460,13 +506,14 @@ const ConteoTable = ({
                 setTotalField={setTotalField}
                 handleKeyDownTotal={handleKeyDownTotal}
                 onBlurTotal={guardarSiCambia}
-                setTotalRef={(id, el) => {
+                setTotalRef={(id: number, el: HTMLInputElement | null) => {
                     totalRefs.current[id] = el;
                 }}
                 renderRowState={renderRowState}
+                onToggleNoEncontrado={toggleNoEncontrado}
             />
 
-            <ConteoTableDesktopTable
+            <Desktop
                 items={filtrados}
                 selectedItemId={selectedItemId ?? null}
                 warnActive={warnActive}
@@ -481,10 +528,11 @@ const ConteoTable = ({
                 setTotalField={setTotalField}
                 handleKeyDownTotal={handleKeyDownTotal}
                 onBlurTotal={guardarSiCambia}
-                setTotalRef={(id, el) => {
+                setTotalRef={(id: number, el: HTMLInputElement | null) => {
                     totalRefs.current[id] = el;
                 }}
                 renderRowState={renderRowState}
+                onToggleNoEncontrado={toggleNoEncontrado}
             />
         </div>
     );

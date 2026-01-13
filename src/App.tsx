@@ -7,6 +7,7 @@ import Operaciones from "@/pages/Operaciones";
 import Conteos from "@/pages/Conteos";
 import Consolidacion from "@/pages/Consolidacion";
 import ConteoPorGrupo from "@/pages/ConteoPorGrupo";
+import ConteoNoEncontrados from "@/pages/ConteoNoEncontrados";
 import AuthLogin from "@/pages/AuthLogin";
 
 import { ToastContainer } from "react-toastify";
@@ -48,7 +49,20 @@ function App() {
                         <Route path="/conteos" element={session ? <Conteos /> : <Navigate to="/login" replace />} />
                         <Route path="/consolidacion" element={session ? <Consolidacion /> : <Navigate to="/login" replace />} />
 
-                        <Route path="/conteo/:operacionId/:grupoId" element={<ConteoPorGrupo />} />
+                        <Route
+                            path="/conteo/:operacionId/:grupoId"
+                            element={session ? <ConteoPorGrupo /> : <Navigate to="/login" replace />}
+                        />
+
+                        <Route
+                            path="/conteo/no-encontrados"
+                            element={session ? <ConteoNoEncontrados /> : <Navigate to="/login" replace />}
+                        />
+
+                        <Route
+                            path="/conteo/no-encontrados/:conteoId"
+                            element={session ? <ConteoNoEncontrados /> : <Navigate to="/login" replace />}
+                        />
 
                         <Route path="*" element={<Navigate to={session ? "/" : "/login"} replace />} />
                     </Routes>

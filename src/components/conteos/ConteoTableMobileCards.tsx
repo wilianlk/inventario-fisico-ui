@@ -38,6 +38,8 @@ interface Props {
 
     setTotalRef: (id: number, el: HTMLInputElement | null) => void;
     renderRowState: (rs: RowState | undefined) => React.ReactNode;
+
+    onToggleNoEncontrado: (item: ItemConteo, value: boolean) => void;
 }
 
 export default function ConteoTableMobileCards({
@@ -57,6 +59,7 @@ export default function ConteoTableMobileCards({
                                                    onBlurTotal,
                                                    setTotalRef,
                                                    renderRowState,
+                                                   onToggleNoEncontrado,
                                                }: Props) {
     return (
         <div className="md:hidden space-y-3 pb-24">
@@ -65,7 +68,9 @@ export default function ConteoTableMobileCards({
                 const totalDisplay = getTotalDisplay(p);
                 const etiqueta = (((item as any).etiqueta ?? "") as string).toString().trim();
                 const rs = rowStateById[item.id];
-                const disabled = locked || !editable;
+
+                const noEncontrado = (item as any).noEncontrado === true;
+                const disabled = locked || !editable || noEncontrado;
 
                 const managed = getManaged(item.id);
                 const paint = warnActive && !managed;
@@ -104,6 +109,18 @@ export default function ConteoTableMobileCards({
                                         <div className="truncate">{item.udm}</div>
                                     </div>
                                     <div className="text-right">{renderRowState(rs)}</div>
+                                </div>
+
+                                <div className="mt-3">
+                                    <label className="inline-flex items-center gap-2 select-none text-[11px] text-slate-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={noEncontrado}
+                                            onChange={(e) => onToggleNoEncontrado(item, e.target.checked)}
+                                            disabled={locked || !editable}
+                                        />
+                                        <span>No está en la ubicación</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>

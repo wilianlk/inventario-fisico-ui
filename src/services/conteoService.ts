@@ -18,6 +18,7 @@ export interface ItemConteo {
     ubicacion: string;
     bodega: string;
     cmpy: string;
+    noEncontrado: boolean;
 }
 
 export interface DetalleConteo {
@@ -45,11 +46,29 @@ export const obtenerConteoActual = () => {
 };
 
 export const obtenerConteoPorGrupo = (operacionId: number, grupoId: number) => {
-    return api.get<ConteoPorGrupoResponse>(`/Inventario/conteo/por-grupo/${operacionId}/${grupoId}`);
+    return api.get<ConteoPorGrupoResponse>(
+        `/Inventario/conteo/por-grupo/${operacionId}/${grupoId}`
+    );
 };
 
 export const actualizarCantidadContada = (itemId: number, cantidadContada: number) => {
-    return api.put(`/OperacionConteoItems/${itemId}/cantidad-contada`, cantidadContada);
+    return api.put(
+        `/OperacionConteoItems/${itemId}/cantidad-contada`,
+        cantidadContada
+    );
+};
+
+export const actualizarNoEncontrado = (itemId: number, noEncontrado: boolean) => {
+    return api.put(
+        `/OperacionConteoItems/${itemId}/no-encontrado`,
+        noEncontrado
+    );
+};
+
+export const obtenerNoEncontradosPorConteo = (conteoId: number) => {
+    return api.get<ItemConteo[]>(
+        `/OperacionConteoItems/conteo/${conteoId}/no-encontrados`
+    );
 };
 
 export const finalizarConteo = (conteoId: number) => {

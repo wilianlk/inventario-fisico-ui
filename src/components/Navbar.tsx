@@ -2,7 +2,16 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
-    Home, Boxes, ClipboardList, BarChart2, FileSpreadsheet, Menu, X, Users, LogOut,
+    Home,
+    Boxes,
+    ClipboardList,
+    BarChart2,
+    FileSpreadsheet,
+    Menu,
+    X,
+    Users,
+    LogOut,
+    MapPinOff,
 } from "lucide-react";
 
 export function Navbar() {
@@ -16,6 +25,7 @@ export function Navbar() {
         { path: "/operaciones", label: "Operaciones", icon: Boxes },
         { path: "/conteos", label: "Conteos", icon: ClipboardList },
         { path: "/consolidacion", label: "Consolidación", icon: BarChart2 },
+        { path: "/conteo/no-encontrados", label: "Ítems sin ubicación", icon: MapPinOff },
         { path: "/auditoria", label: "Auditoría", icon: FileSpreadsheet },
     ];
 
@@ -26,6 +36,8 @@ export function Navbar() {
         setOpen(false);
         navigate("/login", { replace: true });
     };
+
+    const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + "/");
 
     return (
         <nav className="w-full sticky top-0 z-50 border-b border-slate-900 bg-slate-950 shadow-[0_2px_10px_rgba(0,0,0,0.45)]">
@@ -50,7 +62,7 @@ export function Navbar() {
                 <ul className="hidden items-center gap-2 md:flex">
                     {items.map((item) => {
                         const Icon = item.icon;
-                        const active = location.pathname === item.path;
+                        const active = isActive(item.path);
 
                         return (
                             <li key={item.path}>
@@ -92,7 +104,7 @@ export function Navbar() {
                     <ul className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3">
                         {items.map((item) => {
                             const Icon = item.icon;
-                            const active = location.pathname === item.path;
+                            const active = isActive(item.path);
 
                             return (
                                 <li key={item.path}>
