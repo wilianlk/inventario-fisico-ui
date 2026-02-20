@@ -4,9 +4,10 @@ export type EstadoConteo = "ABIERTO" | "CERRADO";
 
 export interface ItemConteo {
     id: number;
+    itemId?: number;
     operacionId: number;
     grupoId: number;
-    conteoId: number;
+    conteoId?: number | null;
     codigoItem: string;
     prod: string | null;
     descripcion: string;
@@ -58,10 +59,14 @@ export const actualizarCantidadContada = (itemId: number, cantidadContada: numbe
     );
 };
 
-export const actualizarNoEncontrado = (itemId: number, noEncontrado: boolean) => {
+export const actualizarNoEncontrado = (
+    conteoId: number,
+    codigoItem: string,
+    noEncontrado: boolean
+) => {
     return api.put(
-        `/OperacionConteoItems/${itemId}/no-encontrado`,
-        noEncontrado
+        `/OperacionConteoItems/no-encontrado`,
+        { conteoId, codigoItem, noEncontrado }
     );
 };
 

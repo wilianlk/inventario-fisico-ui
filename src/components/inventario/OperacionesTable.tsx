@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Operacion, obtenerAvanceOperacion } from "@/services/inventarioService";
@@ -59,6 +59,7 @@ const OperacionesTable = ({
     const [enlaces, setEnlaces] = useState<EnlaceGrupo[]>([]);
 
     const [avancePorOperacion, setAvancePorOperacion] = useState<Record<number, number>>({});
+    const avanceKeyRef = useRef<string>("");
 
     const origin = useMemo(() => {
         const fromEnv = (import.meta as any).env?.VITE_PUBLIC_APP_URL;
@@ -71,14 +72,22 @@ const OperacionesTable = ({
         if (loading) return;
         if (!ops.length) {
             setAvancePorOperacion({});
+            avanceKeyRef.current = "";
             return;
         }
+
+        const ids = ops
+            .map((o) => o.id)
+            .filter((id) => Number.isFinite(id) && id > 0)
+            .sort((a, b) => a - b);
+        const key = ids.join("|");
+        if (key === avanceKeyRef.current) return;
+        avanceKeyRef.current = key;
 
         let cancelado = false;
 
         (async () => {
             try {
-                const ids = ops.map((o) => o.id).filter((id) => Number.isFinite(id) && id > 0);
                 const resultados = await Promise.all(
                     ids.map(async (id) => {
                         try {

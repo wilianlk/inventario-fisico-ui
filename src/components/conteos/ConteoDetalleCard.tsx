@@ -82,6 +82,7 @@ export default function ConteoDetalleCard({
                 items={detalle.items as ItemConteo[]}
                 loading={loadingItems}
                 onUpdateCantidad={onUpdateCantidad}
+                conteoId={detalle.conteoId}
                 selectedItemId={selectedItemId}
                 searchFilters={searchFilters}
                 editable={editable}

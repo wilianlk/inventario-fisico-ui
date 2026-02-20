@@ -45,10 +45,9 @@ export const obtenerConteosFinalizados = () =>
         `/consolidacion/conteos-finalizados`
     );
 
-export const finalizarOperaciones = (data: ConsolidacionCierre) =>
-    api.post<ConsolidacionCierre>(
-        `/consolidacion/finalizar`,
-        data
+export const cerrarConsolidacion = (operacionId: number) =>
+    api.post(
+        `/consolidacion/cerrar/${operacionId}`
     );
 
 export const generarDI81 = (operacionId: number) =>

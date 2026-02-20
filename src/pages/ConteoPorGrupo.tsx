@@ -149,8 +149,12 @@ function ConteoPorGrupo() {
                 setInfo(data);
 
                 const lista = data.items || [];
-                setItems(lista);
-                rebuildQtyRefs(lista);
+                const listaConConteo = lista.map((it) => ({
+                    ...it,
+                    conteoId: (it as any).conteoId ?? data.conteoId ?? null,
+                }));
+                setItems(listaConConteo);
+                rebuildQtyRefs(listaConConteo);
             } catch (error: any) {
                 setInfo(null);
                 setItems([]);
@@ -526,6 +530,7 @@ function ConteoPorGrupo() {
                 items={items}
                 loading={loading}
                 onUpdateCantidad={guardarCantidadAbsoluta}
+                conteoId={info?.conteoId}
                 selectedItemId={selectedItemId}
                 searchFilters={searchFilters}
                 editable={editable}

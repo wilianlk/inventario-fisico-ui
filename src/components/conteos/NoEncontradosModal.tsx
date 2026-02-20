@@ -11,13 +11,25 @@ interface Props {
 export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
     const [items, setItems] = useState<ItemConteo[]>([]);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const extraerMsgError = (err: any, fallback: string) => {
+        const data = err?.response?.data;
+        if (typeof data === "string" && data.trim()) return data;
+        return data?.mensaje || data?.message || fallback;
+    };
 
     useEffect(() => {
         if (!open || !conteoId) return;
 
         setLoading(true);
+        setError(null);
         obtenerNoEncontradosPorConteo(conteoId)
             .then((r) => setItems(r.data ?? []))
+            .catch((err) => {
+                const msg = extraerMsgError(err, "Error al cargar no encontrados.");
+                setError(msg);
+            })
             .finally(() => setLoading(false));
     }, [open, conteoId]);
 
@@ -46,6 +58,8 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
                     <div className="p-4">
                         {loading ? (
                             <div className="text-sm text-slate-600">Cargando…</div>
+                        ) : error ? (
+                            <div className="text-sm text-red-700">{error}</div>
                         ) : items.length === 0 ? (
                             <div className="text-sm text-slate-600">No hay ítems no encontrados.</div>
                         ) : (

@@ -6,6 +6,8 @@ export interface GrupoConteo {
     estado: string;
     fechaCreacion: string;
     usuarioCreacion: number;
+    tieneConteoAbierto?: boolean;
+    operacionIdConteoAbierto?: number | null;
 }
 
 function normalizarLista(data: any): GrupoConteo[] {

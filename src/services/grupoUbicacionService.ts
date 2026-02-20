@@ -43,6 +43,21 @@ export interface ItemPhystag {
     grupoNombre: string;
 }
 
+export interface ItemBusquedaPorItem {
+    bodega: string;
+    item: string;
+    ubicacion: string;
+    lote: string;
+    descripcion: string;
+    udm: string;
+    costo: number;
+    cantidadSistema: number;
+    rackPasillo: string;
+    lado: string;
+    altura: string;
+    posicion: string;
+}
+
 export async function obtenerItemsPorGrupo(
     grupoId?: number
 ): Promise<{ total: number; data: ItemPhystag[] }> {
@@ -60,6 +75,15 @@ export async function previsualizarItems(params: {
     ubicacion?: string;
 }): Promise<{ total: number; data: ItemPhystag[] }> {
     const res = await api.get("/GrupoUbicacion/previsualizar", { params });
+    return res.data;
+}
+
+export async function buscarPorItem(params: {
+    bodega: string;
+    item: string;
+    lote?: string;
+}): Promise<{ total: number; data: ItemBusquedaPorItem[]; mensaje?: string | null }> {
+    const res = await api.get("/GrupoUbicacion/buscar-por-item", { params });
     return res.data;
 }
 

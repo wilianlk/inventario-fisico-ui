@@ -22,6 +22,11 @@ export function GrupoAsignarOperacion({
     const [operacionId, setOperacionId] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const extraerMsgError = (err: any, fallback: string) => {
+        const data = err?.response?.data;
+        if (typeof data === "string" && data.trim()) return data;
+        return data?.mensaje || data?.message || fallback;
+    };
 
     if (!grupo) return null;
 
@@ -39,9 +44,10 @@ export function GrupoAsignarOperacion({
             await asignarOperacionAGrupo(opId, grupo.id);
             onAssigned();
             onClose();
-        } catch {
-            setError("Error al asignar la operación.");
-            toast.error("No se pudo asignar la operación al grupo.");
+        } catch (err: any) {
+            const msg = extraerMsgError(err, "Error al asignar la operacion.");
+            setError(msg);
+            toast.error(msg);
         } finally {
             setLoading(false);
         }
@@ -99,3 +105,8 @@ export function GrupoAsignarOperacion({
         </Dialog>
     );
 }
+
+
+
+
+

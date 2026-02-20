@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
     obtenerOperaciones,
     eliminarOperacion,
@@ -48,18 +48,19 @@ const Operaciones = () => {
     const [loadingEliminar, setLoadingEliminar] = useState(false);
 
     const [errorCerrarMsg, setErrorCerrarMsg] = useState<string>("");
+    const didInitRef = useRef(false);
 
     const normalizarRespuestaOperaciones = (data: any): Operacion[] => {
         if (Array.isArray(data)) return data;
-        if (Array.isArray(data?.data)) return data.data;
-        if (Array.isArray(data?.result)) return data.result;
+        if (Array.isArray(data.data)) return data.data;
+        if (Array.isArray(data.result)) return data.result;
         return [];
     };
 
     const normalizarRespuestaGrupos = (data: any): GrupoConteo[] => {
         if (Array.isArray(data)) return data;
-        if (Array.isArray(data?.data)) return data.data;
-        if (Array.isArray(data?.result)) return data.result;
+        if (Array.isArray(data.data)) return data.data;
+        if (Array.isArray(data.result)) return data.result;
         return [];
     };
 
@@ -67,8 +68,8 @@ const Operaciones = () => {
         const d = error?.response?.data;
         if (!d) return fallback;
         if (typeof d === "string") return d;
-        if (typeof d?.mensaje === "string") return d.mensaje;
-        if (typeof d?.message === "string") return d.message;
+        if (typeof d.mensaje === "string") return d.mensaje;
+        if (typeof d.message === "string") return d.message;
         return fallback;
     };
 
@@ -100,6 +101,8 @@ const Operaciones = () => {
     };
 
     useEffect(() => {
+        if (didInitRef.current) return;
+        didInitRef.current = true;
         cargarOperaciones();
         cargarGrupos();
     }, []);
@@ -398,3 +401,7 @@ const Operaciones = () => {
 };
 
 export default Operaciones;
+
+
+
+

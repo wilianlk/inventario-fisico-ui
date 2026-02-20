@@ -27,6 +27,8 @@ interface Props {
     getTotalDisplay: (p: Parts) => number | null;
 
     rowStateById: Record<number, RowState>;
+    isSaving: (id: number) => boolean;
+    isMissingConteoId: (item: ItemConteo) => boolean;
     locked: boolean;
     editable: boolean;
 
@@ -37,7 +39,7 @@ interface Props {
     onBlurTotal: (item: ItemConteo) => void;
 
     setTotalRef: (id: number, el: HTMLInputElement | null) => void;
-    renderRowState: (rs: RowState | undefined) => React.ReactNode;
+    renderRowState: (rs: RowState | undefined, missingConteo: boolean) => React.ReactNode;
 
     onToggleNoEncontrado: (item: ItemConteo, value: boolean) => void;
 }
@@ -51,6 +53,8 @@ export default function ConteoTableMobileCards({
                                                    anyManualFilled,
                                                    getTotalDisplay,
                                                    rowStateById,
+                                                   isSaving,
+                                                   isMissingConteoId,
                                                    locked,
                                                    editable,
                                                    setManualField,
@@ -70,7 +74,9 @@ export default function ConteoTableMobileCards({
                 const rs = rowStateById[item.id];
 
                 const noEncontrado = (item as any).noEncontrado === true;
-                const disabled = locked || !editable || noEncontrado;
+                const missingConteo = isMissingConteoId(item);
+                const saving = isSaving(item.id);
+                const disabled = locked || !editable || noEncontrado || saving || missingConteo;
 
                 const managed = getManaged(item.id);
                 const paint = warnActive && !managed;
@@ -108,7 +114,7 @@ export default function ConteoTableMobileCards({
                                         <div className="text-slate-500">Udm</div>
                                         <div className="truncate">{item.udm}</div>
                                     </div>
-                                    <div className="text-right">{renderRowState(rs)}</div>
+                                    <div className="text-right">{renderRowState(rs, missingConteo)}</div>
                                 </div>
 
                                 <div className="mt-3">
@@ -117,7 +123,7 @@ export default function ConteoTableMobileCards({
                                             type="checkbox"
                                             checked={noEncontrado}
                                             onChange={(e) => onToggleNoEncontrado(item, e.target.checked)}
-                                            disabled={locked || !editable}
+                                            disabled={locked || !editable || saving || missingConteo}
                                         />
                                         <span>No está en la ubicación</span>
                                     </label>

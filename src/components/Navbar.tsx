@@ -48,7 +48,7 @@ export function Navbar() {
                     </div>
                     <div className="leading-tight">
                         <div className="text-sm font-semibold tracking-wider text-slate-100 uppercase">Inventario Físico</div>
-                        <div className="text-xs text-slate-400">IBES · Recuento · DI81</div>
+                        <div className="text-xs text-slate-400">IBES · DI81</div>
                     </div>
                 </div>
 

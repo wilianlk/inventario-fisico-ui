@@ -4,7 +4,7 @@ import {
     generarDI81,
     obtenerConteosFinalizados,
     consolidacionFinalizada,
-    finalizarOperaciones,
+    cerrarConsolidacion,
 } from "@/services/consolidacionService";
 import ConsolidacionFilters from "@/components/consolidacion/ConsolidacionFilters";
 import ConsolidacionTable from "@/components/consolidacion/ConsolidacionTable";
@@ -30,7 +30,9 @@ const FinalizarModal = ({ open, loading, onClose, onConfirm }: FinalizarModalPro
             <div className="absolute inset-0 bg-black/40" onClick={() => (!loading ? onClose() : null)} />
             <div className="relative w-full max-w-md rounded-xl bg-white shadow-lg p-5">
                 <h3 className="text-base font-semibold text-slate-900">Confirmar finalización</h3>
-                <p className="mt-2 text-sm text-slate-600">¿Está seguro de finalizar el inventario? Esta acción no se puede deshacer.</p>
+                <p className="mt-2 text-sm text-slate-600">
+                    ¿Está seguro de finalizar el inventario? Esta acción no se puede deshacer.
+                </p>
 
                 <div className="mt-5 flex justify-end gap-2">
                     <button
@@ -92,7 +94,7 @@ const Consolidacion = () => {
         const errors = data?.errors;
         if (errors && typeof errors === "object") {
             const firstKey = Object.keys(errors)[0];
-            const firstVal = firstKey ? errors[firstKey] : null;
+            const firstVal = firstKey ? (errors as any)[firstKey] : null;
             if (Array.isArray(firstVal) && firstVal.length > 0) return String(firstVal[0]);
         }
 
@@ -145,9 +147,16 @@ const Consolidacion = () => {
         try {
             const resp = await obtenerConteosFinalizados();
             const raw = (resp.data?.items ?? resp.data ?? []) as BackendConsolidadoItem[];
-            setItems(Array.isArray(raw) ? raw : []);
+            const next = Array.isArray(raw) ? raw : [];
 
-            const ids = getOperacionIdsFromItems(raw as any[]);
+            if (finalizada && next.length === 0 && items.length > 0) {
+                toast.info("La operación está finalizada. Se mantiene el snapshot en pantalla.");
+                return;
+            }
+
+            setItems(next);
+
+            const ids = getOperacionIdsFromItems(next as any[]);
             if (ids.length === 1) {
                 setValidandoEstado(true);
                 const ok = await validarFinalizada(ids[0]);
@@ -159,8 +168,8 @@ const Consolidacion = () => {
         } catch (e) {
             console.error(e);
             toast.error("No se pudo cargar la consolidación.");
-            setItems([]);
-            setFinalizada(false);
+            if (!finalizada) setItems([]);
+            if (!finalizada) setFinalizada(false);
         } finally {
             setLoading(false);
             setValidandoEstado(false);
@@ -208,23 +217,21 @@ const Consolidacion = () => {
             return;
         }
 
+        if (operacionIds.length !== 1) {
+            toast.error("Solo se puede finalizar cuando hay una sola operación cargada.");
+            return;
+        }
+
+        const operacionId = operacionIds[0];
+
         try {
             setFinalizando(true);
 
-            const resp = await finalizarOperaciones({
-                operacionIds,
-                operacionesFinalizadas: [],
-            });
+            await cerrarConsolidacion(operacionId);
 
-            const fin = (resp?.data as any)?.operacionesFinalizadas ?? [];
-
-            if (Array.isArray(fin) && fin.length > 0) {
-                toast.success(fin.length === 1 ? "Consolidación finalizada." : `Consolidación finalizada. Operaciones: ${fin.length}.`);
-                setOpenFinalizar(false);
-                void cargar();
-            } else {
-                toast.error("No se pudo finalizar la consolidación.");
-            }
+            toast.success("Operación y consolidación finalizadas.");
+            setFinalizada(true);
+            setOpenFinalizar(false);
         } catch (e: any) {
             toast.error(errorMsg(e, "No se pudo finalizar la consolidación."));
         } finally {
@@ -248,7 +255,9 @@ const Consolidacion = () => {
         const operacionId = operacionIds[0];
 
         if (!finalizada) {
-            toast.error(`Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`);
+            toast.error(
+                `Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`
+            );
             return;
         }
 
@@ -273,7 +282,13 @@ const Consolidacion = () => {
                     value={filters}
                     onChange={setFilters}
                     onClear={limpiar}
-                    onReload={() => void cargar()}
+                    onReload={() => {
+                        if (finalizada) {
+                            toast.info("La operación está finalizada. No se recarga para mantener la información en pantalla.");
+                            return;
+                        }
+                        void cargar();
+                    }}
                     loading={loading}
                     resumen={resumen}
                 />
@@ -292,6 +307,10 @@ const Consolidacion = () => {
                                     toast.error("No hay operación cargada.");
                                     return;
                                 }
+                                if (ids.length !== 1) {
+                                    toast.error("Solo se puede finalizar/generar cuando hay una sola operación cargada.");
+                                    return;
+                                }
 
                                 if (finalizada) {
                                     void generarArchivo();
@@ -308,7 +327,12 @@ const Consolidacion = () => {
 
             <ConsolidacionTable rows={rows} />
 
-            <FinalizarModal open={openFinalizar} loading={finalizando} onClose={() => setOpenFinalizar(false)} onConfirm={finalizar} />
+            <FinalizarModal
+                open={openFinalizar}
+                loading={finalizando}
+                onClose={() => setOpenFinalizar(false)}
+                onConfirm={finalizar}
+            />
         </section>
     );
 };

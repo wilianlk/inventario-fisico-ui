@@ -31,17 +31,15 @@ const FinalizarInventarioModal = ({ operacionId, disabledReason, onFinalizado }:
         try {
             setLoading(true);
 
-            const cerrarResp = await fetch(`/api/inventario/cerrar/${operacionId}`, { method: "PUT" });
+            const cerrarResp = await fetch(`/api/consolidacion/cerrar/${operacionId}`, { method: "POST" });
 
             if (!cerrarResp.ok) {
-                let msg = "Error al cerrar la operación.";
+                let msg = "Error al finalizar la operación y consolidación.";
                 try {
                     const err = await cerrarResp.json();
                     msg = err?.mensaje || msg;
                 } catch {}
-
-                const yaCerrada = msg.toLowerCase().includes("ya") && msg.toLowerCase().includes("cerrad");
-                if (!yaCerrada) throw new Error(msg);
+                throw new Error(msg);
             }
 
             const di81Resp = await fetch(`/api/consolidacion/generar-di81/${operacionId}`, { method: "POST" });

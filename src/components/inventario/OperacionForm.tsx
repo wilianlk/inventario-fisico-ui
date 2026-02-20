@@ -1,10 +1,11 @@
-import { ChangeEvent, useMemo, useState } from "react";
+﻿import { ChangeEvent, useMemo, useState } from "react";
 import { CrearOperacionRequest } from "@/services/inventarioService";
 import { GrupoConteo } from "@/services/grupoConteoService";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface ErroresForm {
     fecha?: string;
@@ -37,8 +38,10 @@ const OperacionForm = ({
                            errores = {},
                        }: OperacionFormProps) => {
     const [qGrupos, setQGrupos] = useState("");
+    const [selectorOpen, setSelectorOpen] = useState(false);
 
     const idsSel = useMemo(() => new Set<number>(form.gruposIds || []), [form.gruposIds]);
+    const isGrupoBloqueado = (g: GrupoConteo) => g?.tieneConteoAbierto === true;
 
     const gruposFiltrados = useMemo(() => {
         const lista = Array.isArray(gruposDisponibles) ? gruposDisponibles : [];
@@ -63,12 +66,19 @@ const OperacionForm = ({
         return [...sel, ...noSel];
     }, [gruposFiltrados, idsSel]);
 
+    const gruposSeleccionados = useMemo(() => {
+        const lista = Array.isArray(gruposDisponibles) ? gruposDisponibles : [];
+        return lista.filter((g) => idsSel.has(g.id));
+    }, [gruposDisponibles, idsSel]);
+
     const totalGrupos = Array.isArray(gruposDisponibles) ? gruposDisponibles.length : 0;
     const selCount = (form.gruposIds || []).length;
 
     const seleccionarTodos = () => {
         const lista = Array.isArray(gruposDisponibles) ? gruposDisponibles : [];
-        for (const g of lista) onToggleGrupo(g.id, true);
+        for (const g of lista) {
+            if (!isGrupoBloqueado(g)) onToggleGrupo(g.id, true);
+        }
     };
 
     const limpiarSeleccion = () => {
@@ -79,6 +89,7 @@ const OperacionForm = ({
     const disabledCrear = loading || (typeof canCreate === "boolean" ? !canCreate : false);
 
     return (
+        <>
         <Card>
             <CardHeader className="text-center">
                 <CardTitle>Nueva operación</CardTitle>
@@ -151,7 +162,37 @@ const OperacionForm = ({
                             >
                                 Limpiar
                             </Button>
+                            <Button
+                                type="button"
+                                size="sm"
+                                className="h-8 px-3 text-xs"
+                                onClick={() => setSelectorOpen(true)}
+                            >
+                                Elegir grupos
+                            </Button>
                         </div>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 bg-white p-2">
+                        <div className="text-xs text-slate-500 mb-1">Seleccionados</div>
+                        {gruposSeleccionados.length === 0 ? (
+                            <div className="text-xs text-slate-400">Aún no has seleccionado grupos.</div>
+                        ) : (
+                            <div className="flex flex-wrap gap-2">
+                                {gruposSeleccionados.map((g) => (
+                                    <button
+                                        key={g.id}
+                                        type="button"
+                                        className="flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                                        onClick={() => onToggleGrupo(g.id, false)}
+                                    >
+                                        <span className="font-mono">#{g.id}</span>
+                                        <span className="truncate max-w-[180px]">{g.nombre}</span>
+                                        <span className="text-slate-400">x</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {!Array.isArray(gruposDisponibles) || gruposDisponibles.length === 0 ? (
@@ -164,37 +205,9 @@ const OperacionForm = ({
                                 errores.gruposIds ? "border-red-300 bg-red-50/40" : "border-slate-200"
                             }`}
                         >
-                            <Input
-                                value={qGrupos}
-                                onChange={(e) => setQGrupos(e.target.value)}
-                                placeholder="Buscar por nombre o ID…"
-                                className="h-9"
-                            />
-
-                            <div className="mt-2 max-h-56 overflow-auto">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    {gruposOrdenados.map((g) => {
-                                        const checked = idsSel.has(g.id);
-                                        return (
-                                            <label
-                                                key={g.id}
-                                                className={`flex items-center gap-2 rounded-md border px-2 py-1 text-sm ${
-                                                    checked ? "bg-slate-50" : "bg-white"
-                                                }`}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={checked}
-                                                    onChange={(e) => onToggleGrupo(g.id, e.target.checked)}
-                                                />
-                                                <span className="min-w-[46px] text-xs text-slate-500">#{g.id}</span>
-                                                <span className="truncate">{g.nombre}</span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
+                            <div className="text-xs text-slate-500">
+                                Usa "Elegir grupos" para seleccionar desde la lista completa.
                             </div>
-
                             {errores.gruposIds ? <p className="text-xs text-red-600 mt-2">{errores.gruposIds}</p> : null}
                         </div>
                     )}
@@ -207,7 +220,71 @@ const OperacionForm = ({
                 </div>
             </CardContent>
         </Card>
+
+        <Dialog open={selectorOpen} onOpenChange={setSelectorOpen}>
+            <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>Seleccionar grupos</DialogTitle>
+                </DialogHeader>
+
+                {!Array.isArray(gruposDisponibles) || gruposDisponibles.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                        No hay grupos disponibles. Crea grupos en la pantalla correspondiente.
+                    </p>
+                ) : (
+                    <div className="space-y-3">
+                        <Input
+                            value={qGrupos}
+                            onChange={(e) => setQGrupos(e.target.value)}
+                            placeholder="Buscar por nombre o ID..."
+                            className="h-9"
+                        />
+
+                        <div className="max-h-[50vh] overflow-auto">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {gruposOrdenados.map((g) => {
+                                    const checked = idsSel.has(g.id);
+                                    const bloqueado = isGrupoBloqueado(g);
+                                    const opId = g.operacionIdConteoAbierto;
+                                    return (
+                                        <label
+                                            key={g.id}
+                                            className={`flex items-center gap-2 rounded-md border px-2 py-1 text-sm ${
+                                                checked ? "bg-slate-50" : "bg-white"
+                                            } ${bloqueado ? "opacity-60 cursor-not-allowed" : ""}`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                disabled={bloqueado}
+                                                onChange={(e) => onToggleGrupo(g.id, e.target.checked)}
+                                            />
+                                            <span className="min-w-[46px] text-xs text-slate-500">#{g.id}</span>
+                                            <span className="truncate">{g.nombre}</span>
+                                            {bloqueado && (
+                                                <span className="ml-auto text-[10px] text-amber-700">
+                                                    Asignado a conteo abierto
+                                                        {opId ? ` (Operación: ${opId})` : ""}
+                                                </span>
+                                            )}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setSelectorOpen(false)}>
+                        Cerrar
+                    </Button>
+                </div>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 };
 
 export default OperacionForm;
+

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DetalleConteo, obtenerConteoActual } from "@/services/conteoService";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,8 +21,11 @@ export default function ConteoNoEncontrados() {
 
     const [open, setOpen] = useState(false);
     const [selectedConteoId, setSelectedConteoId] = useState<number | null>(null);
+    const didLoadRef = useRef(false);
 
     useEffect(() => {
+        if (didLoadRef.current) return;
+        didLoadRef.current = true;
         setLoading(true);
         obtenerConteoActual()
             .then((r) => setDetalle(r.data ?? []))

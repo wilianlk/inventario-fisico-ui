@@ -35,6 +35,8 @@ interface Props {
     getTotalDisplay: (p: Parts) => number | null;
 
     rowStateById: Record<number, RowState>;
+    isSaving: (id: number) => boolean;
+    isMissingConteoId: (item: ItemConteo) => boolean;
     locked: boolean;
     editable: boolean;
 
@@ -45,7 +47,7 @@ interface Props {
     onBlurTotal: (item: ItemConteo) => void;
 
     setTotalRef: (id: number, el: HTMLInputElement | null) => void;
-    renderRowState: (rs: RowState | undefined) => React.ReactNode;
+    renderRowState: (rs: RowState | undefined, missingConteo: boolean) => React.ReactNode;
 
     onToggleNoEncontrado: (item: ItemConteo, value: boolean) => void;
 }
@@ -59,6 +61,8 @@ export default function ConteoTableDesktopTable({
                                                     anyManualFilled,
                                                     getTotalDisplay,
                                                     rowStateById,
+                                                    isSaving,
+                                                    isMissingConteoId,
                                                     locked,
                                                     editable,
                                                     setManualField,
@@ -93,7 +97,9 @@ export default function ConteoTableDesktopTable({
                         const rs = rowStateById[item.id];
 
                         const noEncontrado = (item as any).noEncontrado === true;
-                        const disabled = locked || !editable || noEncontrado;
+                        const missingConteo = isMissingConteoId(item);
+                        const saving = isSaving(item.id);
+                        const disabled = locked || !editable || noEncontrado || saving || missingConteo;
 
                         const managed = getManaged(item.id);
                         const paint = warnActive && !managed;
@@ -128,7 +134,7 @@ export default function ConteoTableDesktopTable({
                                             type="checkbox"
                                             checked={noEncontrado}
                                             onChange={(e) => onToggleNoEncontrado(item, e.target.checked)}
-                                            disabled={locked || !editable}
+                                            disabled={locked || !editable || saving || missingConteo}
                                         />
                                         <span className="text-slate-600">No está</span>
                                     </label>
@@ -190,7 +196,9 @@ export default function ConteoTableDesktopTable({
                                             ref={(el) => setTotalRef(item.id, el)}
                                         />
 
-                                        <div className="min-w-[72px] text-right">{renderRowState(rs)}</div>
+                                        <div className="min-w-[72px] text-right">
+                                            {renderRowState(rs, missingConteo)}
+                                        </div>
                                     </div>
                                 </TableCell>
                             </TableRow>

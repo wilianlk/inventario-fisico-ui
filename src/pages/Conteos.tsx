@@ -36,11 +36,23 @@ const Conteos = () => {
 
     const gestionadoByIdRef = useRef<Record<number, boolean>>({});
     const itemToConteoIdRef = useRef<Record<number, number>>({});
+    const missingToastByIdRef = useRef<Record<number, number>>({});
 
     const [highlightByConteoId, setHighlightByConteoId] = useState<Record<number, boolean>>({});
 
     const scanUiRef = useRef<ConteosScanBlockHandle | null>(null);
     const finalizarRef = useRef<ConteosFinalizarFlowHandle | null>(null);
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const retryOnce = async <T,>(fn: () => Promise<T>, delayMs = 400): Promise<T> => {
+        try {
+            return await fn();
+        } catch (err) {
+            await sleep(delayMs);
+            return await fn();
+        }
+    };
 
     const isManaged = (itemId: number) => !!gestionadoByIdRef.current[itemId];
 
@@ -70,11 +82,21 @@ const Conteos = () => {
     }, [detalles]);
 
     const editableItemId = (itemId: number) => {
+        const conteoId = itemToConteoIdRef.current[itemId];
+        if (!conteoId) return false;
         const key = detalleKeyByItemId[itemId];
         if (!key) return true;
         const st = estadoByDetalleKey[key];
         if (!st) return true;
         return st === "ABIERTO";
+    };
+
+    const toastMissingConteo = (itemId: number) => {
+        const now = Date.now();
+        const last = missingToastByIdRef.current[itemId] || 0;
+        if (now - last < 2000) return;
+        missingToastByIdRef.current[itemId] = now;
+        toast.error("ConteoId no disponible para este ítem.");
     };
 
     const hayAlgunoEditable = useMemo(() => {
@@ -139,7 +161,7 @@ const Conteos = () => {
         const next = prev
             .catch(() => undefined)
             .then(async () => {
-                await actualizarCantidadContada(itemId, cantidad);
+                await retryOnce(() => actualizarCantidadContada(itemId, cantidad));
                 confirmedByIdRef.current[itemId] = cantidad;
             });
         queueByIdRef.current[itemId] = next;
@@ -152,8 +174,15 @@ const Conteos = () => {
         try {
             const resp = await obtenerConteoActual();
             const lista = resp.data ?? [];
-            setDetalles(lista);
-            rebuildQtyRefs(lista);
+            const listaConConteo = lista.map((det) => ({
+                ...det,
+                items: (det.items || []).map((it) => ({
+                    ...it,
+                    conteoId: (it as any).conteoId ?? det.conteoId ?? null,
+                })),
+            }));
+            setDetalles(listaConConteo);
+            rebuildQtyRefs(listaConConteo);
             setHighlightByConteoId({});
         } catch (error) {
             console.error(error);
@@ -174,7 +203,12 @@ const Conteos = () => {
         scanUiRef.current?.markManualIntent();
 
         if (!editableItemId(itemId)) {
-            toast.info("Conteo cerrado. Solo lectura.");
+            const conteoId = itemToConteoIdRef.current[itemId];
+            if (!conteoId) {
+                toastMissingConteo(itemId);
+            } else {
+                toast.info("Conteo cerrado. Solo lectura.");
+            }
             return;
         }
 
@@ -187,25 +221,21 @@ const Conteos = () => {
 
         try {
             await enqueuePersist(itemId, nueva);
-            toast.success("Cantidad contada guardada.");
         } catch (error: any) {
             console.error(error);
             setLocalCantidad(itemId, prevConfirm);
-            const msg =
-                error?.response?.data?.mensaje ||
-                error?.response?.data?.message ||
-                error?.response?.data?.error ||
-                (typeof error?.response?.data === "string" ? error.response.data : null) ||
-                error?.message ||
-                "No se pudo guardar la cantidad contada.";
-            toast.error(String(msg));
             throw error;
         }
     };
 
     const sumarCantidad = async (itemId: number, delta: number) => {
         if (!editableItemId(itemId)) {
-            toast.info("Conteo cerrado. Solo lectura.");
+            const conteoId = itemToConteoIdRef.current[itemId];
+            if (!conteoId) {
+                toastMissingConteo(itemId);
+            } else {
+                toast.info("Conteo cerrado. Solo lectura.");
+            }
             return;
         }
 
@@ -224,7 +254,6 @@ const Conteos = () => {
 
         setLocalCantidad(itemId, nueva);
         setManaged(itemId, true);
-        void enqueuePersist(itemId, nueva);
     };
 
     const resetBusquedaManual = () => {
@@ -260,7 +289,6 @@ const Conteos = () => {
                     onReplaceFromScan={(itemId, value) => {
                         setLocalCantidad(itemId, value);
                         setManaged(itemId, true);
-                        void enqueuePersist(itemId, value);
                     }}
                 />
 

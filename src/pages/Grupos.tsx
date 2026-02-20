@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
     GrupoConteo,
     getGruposTodos,
-    getGruposPorOperacion,
     activarGrupo,
     inactivarGrupo,
 } from "@/services/grupoConteoService";
@@ -26,26 +25,37 @@ import { toast } from "react-toastify";
 function Grupos() {
     const [grupos, setGrupos] = useState<GrupoConteo[]>([]);
     const [loading, setLoading] = useState(false);
-    const [operacionFiltro, setOperacionFiltro] = useState("");
+    const [grupoFiltro, setGrupoFiltro] = useState("");
     const [crearOpen, setCrearOpen] = useState(false);
     const [personasOpen, setPersonasOpen] = useState(false);
     const [ubicacionesOpen, setUbicacionesOpen] = useState(false);
     const [grupoSeleccionado, setGrupoSeleccionado] =
         useState<GrupoConteo | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const didInitRef = useRef(false);
 
     const cargarGrupos = async () => {
         setLoading(true);
         setError(null);
         try {
-            let data: GrupoConteo[];
-            if (operacionFiltro.trim()) {
-                const opId = Number(operacionFiltro);
-                data = opId ? await getGruposPorOperacion(opId) : await getGruposTodos();
-            } else {
-                data = await getGruposTodos();
+            const data = await getGruposTodos();
+            const filtro = grupoFiltro.trim();
+            let filtrados = data;
+            if (filtro) {
+                const num = Number(filtro);
+                if (Number.isFinite(num) && String(num) === filtro) {
+                    filtrados = data.filter((g) => g.id === num);
+                } else {
+                    const lower = filtro.toLowerCase();
+                    filtrados = data.filter((g) =>
+                        (g.nombre || "").toLowerCase().includes(lower)
+                    );
+                }
             }
-            setGrupos(data);
+            setGrupos(filtrados);
+            if (filtro && filtrados.length === 0) {
+                setError("No hay grupos con ese filtro.");
+            }
         } catch {
             setError("Error al cargar grupos.");
             toast.error("Error al cargar los grupos.");
@@ -56,6 +66,8 @@ function Grupos() {
     };
 
     useEffect(() => {
+        if (didInitRef.current) return;
+        didInitRef.current = true;
         cargarGrupos();
     }, []);
 
@@ -120,15 +132,15 @@ function Grupos() {
                         className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3"
                     >
                         <div className="flex flex-col gap-1">
-                            <Label htmlFor="operacionId" className="text-xs text-slate-600">
-                                Filtrar por ID de operación
+                            <Label htmlFor="grupoFiltro" className="text-xs text-slate-600">
+                                Filtrar por grupo
                             </Label>
                             <Input
-                                id="operacionId"
+                                id="grupoFiltro"
                                 className="w-40 text-sm"
-                                value={operacionFiltro}
-                                onChange={(e) => setOperacionFiltro(e.target.value)}
-                                placeholder="Ej: 1001"
+                                value={grupoFiltro}
+                                onChange={(e) => setGrupoFiltro(e.target.value)}
+                                placeholder="Ej: William o 3"
                             />
                         </div>
                         <Button
@@ -144,7 +156,7 @@ function Grupos() {
                             size="sm"
                             className="text-xs text-slate-600 hover:bg-slate-100"
                             onClick={() => {
-                                setOperacionFiltro("");
+                                setGrupoFiltro("");
                                 cargarGrupos();
                             }}
                         >
@@ -196,3 +208,5 @@ function Grupos() {
 }
 
 export default Grupos;
+
+
