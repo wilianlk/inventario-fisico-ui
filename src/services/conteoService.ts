@@ -1,4 +1,5 @@
 import api from "./api";
+import type { AxiosResponse } from "axios";
 
 export type EstadoConteo = "EN_CONTEO" | "CERRADO" | "ABIERTO";
 
@@ -44,6 +45,7 @@ export interface ConteoPorGrupoResponse {
 
 export interface ConteoActualKpis {
     conteosActivos: number;
+    operacionesConsolidadas: number;
     itemsContados: number;
     noEncontrados: number;
 }
@@ -54,8 +56,16 @@ export interface FinalizarConteoPayload {
     conteoId: number;
 }
 
-export const obtenerConteoActual = () => {
-    return api.get<DetalleConteo[]>("/Inventario/conteo/actual");
+export const obtenerConteoActual = async (): Promise<AxiosResponse<DetalleConteo[]>> => {
+    try {
+        return await api.get<DetalleConteo[]>("/Inventario/conteo/actual");
+    } catch (error: any) {
+        // El backend usa 404 cuando no hay conteos activos; trátalo como lista vacía.
+        const status = error?.response?.status;
+        if (status === 404)
+            return ({ data: [] as DetalleConteo[] } as unknown) as AxiosResponse<DetalleConteo[]>;
+        throw error;
+    }
 };
 
 export const obtenerConteoActualKpis = () => {

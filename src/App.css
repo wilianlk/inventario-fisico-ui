@@ -2,6 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes api-loading-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.api-loading-bar {
+  will-change: transform;
+  animation: api-loading-bar 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .api-loading-bar {
+    animation: none;
+  }
+}
+
 @layer base {
   :root {
     /* Tema CLARO por defecto (look empresa) */

@@ -135,9 +135,9 @@ const OperacionCrear = ({
 
         if (!conteoValido) {
             if (conteoForzadoValido != null) {
-                toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creaciÃ³n.`);
+                toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creación.`);
             } else {
-                toast.warning("Debes seleccionar un nÃºmero de conteo vÃ¡lido (1, 2 o 3).");
+                toast.warning("Debes seleccionar un número de conteo válido (1, 2 o 3).");
             }
             return;
         }
@@ -156,7 +156,7 @@ const OperacionCrear = ({
 
             await crearOperacion(payload);
 
-            toast.success("OperaciÃ³n creada correctamente.");
+            toast.success("Operación creada correctamente.");
 
             setForm((prev) => ({
                 ...prev,
@@ -174,7 +174,7 @@ const OperacionCrear = ({
                 error?.response?.data?.mensaje ||
                 error?.response?.data?.message ||
                 error?.response?.data ||
-                "No se pudo crear la operaciÃ³n.";
+                "No se pudo crear la operación.";
             toast.error(msg);
         } finally {
             setLoading(false);
@@ -185,7 +185,7 @@ const OperacionCrear = ({
         <div className="space-y-3">
             {submitAttempted && faltantes.length > 0 ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                    <div className="font-semibold">Faltan datos para crear la operaciÃ³n</div>
+                    <div className="font-semibold">Faltan datos para crear la operación</div>
                     <ul className="mt-1 list-disc pl-5 text-xs">
                         {faltantes.map((x) => (
                             <li key={x}>{x}</li>

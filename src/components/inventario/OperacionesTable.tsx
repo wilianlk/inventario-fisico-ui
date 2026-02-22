@@ -278,24 +278,58 @@ const OperacionesTable = ({
                                                                             const estadoGrupo = String(g?.estado ?? "").trim().toUpperCase();
                                                                             const disabled = !Number.isFinite(conteoId);
                                                                             const grupoId = Number(g?.grupoId);
+                                                                            const grupoAvanceRaw = g?.porcentajes?.porcentaje ?? 0;
+                                                                            const grupoAvanceNum = Number(grupoAvanceRaw);
+                                                                            const grupoAvance = Math.max(
+                                                                                0,
+                                                                                Math.min(100, Number.isFinite(grupoAvanceNum) ? grupoAvanceNum : 0)
+                                                                            );
+                                                                            const grupoTotal = Number(g?.porcentajes?.totalItems);
+                                                                            const grupoContados = Number(g?.porcentajes?.itemsContados);
+                                                                            const mostrarConteo =
+                                                                                Number.isFinite(grupoTotal) &&
+                                                                                grupoTotal > 0 &&
+                                                                                Number.isFinite(grupoContados) &&
+                                                                                grupoContados >= 0;
 
                                                                             return (
                                                                                 <div
                                                                                     key={`${c}-${g?.grupoId}-${conteoId || "na"}`}
                                                                                     className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                                                                                 >
-                                                                                    <div className="min-w-0 flex items-center gap-2 text-sm text-slate-700">
-                                                                                        <span className="font-semibold text-slate-900 leading-none">{grupoNombre}</span>
-                                                                                        {Number.isFinite(conteoId) ? (
-                                                                                            <span className="text-xs text-slate-400 leading-none">#{conteoId}</span>
-                                                                                        ) : null}
-                                                                                        {Number.isFinite(grupoId) ? (
-                                                                                            <span className="text-xs text-slate-300 leading-none">(grupo {grupoId})</span>
-                                                                                        ) : null}
-                                                                                        {estadoGrupo ? (
-                                                                                            <span className="ml-1 inline-flex h-6 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-700">
-                                                                                                {estadoGrupo}
-                                                                                            </span>
+                                                                                    <div className="min-w-0">
+                                                                                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                                                                                            <span className="font-semibold text-slate-900 leading-none">{grupoNombre}</span>
+                                                                                            {Number.isFinite(conteoId) ? (
+                                                                                                <span className="text-xs text-slate-400 leading-none">#{conteoId}</span>
+                                                                                            ) : null}
+                                                                                            {Number.isFinite(grupoId) ? (
+                                                                                                <span className="text-xs text-slate-300 leading-none">(grupo {grupoId})</span>
+                                                                                            ) : null}
+                                                                                            {estadoGrupo ? (
+                                                                                                <span className="ml-1 inline-flex h-6 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-700">
+                                                                                                    {estadoGrupo}
+                                                                                                </span>
+                                                                                            ) : null}
+                                                                                        </div>
+
+                                                                                        {g?.porcentajes ? (
+                                                                                            <div className="mt-1 flex flex-nowrap items-center gap-2">
+                                                                                                <div className="h-2 w-24 shrink-0 rounded-full bg-slate-200 overflow-hidden">
+                                                                                                    <div
+                                                                                                        className="h-full bg-emerald-500"
+                                                                                                        style={{ width: `${grupoAvance}%` }}
+                                                                                                    />
+                                                                                                </div>
+                                                                                                <span className="shrink-0 text-[11px] text-slate-600">
+                                                                                                    {grupoAvance}%
+                                                                                                </span>
+                                                                                                {mostrarConteo ? (
+                                                                                                    <span className="shrink-0 text-[11px] text-slate-500">
+                                                                                                        {grupoContados}/{grupoTotal}
+                                                                                                    </span>
+                                                                                                ) : null}
+                                                                                            </div>
                                                                                         ) : null}
                                                                                     </div>
                                                                                     <div className="flex items-center gap-2 sm:justify-end">

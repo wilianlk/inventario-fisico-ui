@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { ConsolidadoRow } from "@/hooks/consolidacion.logic";
+﻿import { useState } from "react";
+import type { ConsolidadoRow } from "@/hooks/consolidacion.logic";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Props = {
     rows: ConsolidadoRow[];
+    fullBleed?: boolean;
 };
 
 const fmtMoney = (n: number) =>
@@ -49,7 +50,7 @@ const ModalPlaceholder = ({ open, row, onClose }: ModalProps) => {
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center">
             <div className="absolute inset-0 bg-black/40" onClick={onClose} />
             <div className="relative w-full max-w-lg rounded-xl bg-white shadow-lg p-5">
                 <h3 className="text-base font-semibold text-slate-900">Acción Grupo C3</h3>
@@ -80,7 +81,7 @@ const ModalPlaceholder = ({ open, row, onClose }: ModalProps) => {
     );
 };
 
-const ConsolidacionTable = ({ rows }: Props) => {
+const ConsolidacionTable = ({ rows, fullBleed = true }: Props) => {
     const [conteos3Editados, setConteos3Editados] = useState<Record<string, number | null>>({});
     const [modalRow, setModalRow] = useState<ConsolidadoRow | null>(null);
 
@@ -97,12 +98,12 @@ const ConsolidacionTable = ({ rows }: Props) => {
 
     return (
         <>
-            <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
-                <div className="px-4 sm:px-6">
-                    <div className="mx-auto max-w-[1700px]">
+            <div className={fullBleed ? "relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen" : ""}>
+                <div className={fullBleed ? "px-4 sm:px-6" : ""}>
+                    <div className={fullBleed ? "mx-auto max-w-[1700px]" : ""}>
                         <div className="rounded-xl border bg-white shadow-sm">
                             <div className="p-3 sm:p-4">
-                                <div className="overflow-x-auto">
+                                <div className="hidden md:block overflow-x-auto">
                                     <Table className="table-fixed w-[1390px] mx-auto">
                                         <TableHeader>
                                             <TableRow>
@@ -168,16 +169,22 @@ const ConsolidacionTable = ({ rows }: Props) => {
                                                         No hay datos para mostrar.
                                                     </TableCell>
                                                 </TableRow>
-                                            ) : (
-                                                rows.map((r) => {
-                                                    const conteo3EnVivo = getConteo3EnVivo(r.key, r.conteo3);
-                                                    const capturaFinalEnVivo = calcularCapturaFinal(r.conteo1, r.conteo2, conteo3EnVivo);
+                                             ) : (
+                                                 rows.map((r) => {
+                                                     const conteo3EnVivo = getConteo3EnVivo(r.key, r.conteo3);
+                                                    const hasEditedConteo3 = Object.prototype.hasOwnProperty.call(conteos3Editados, r.key);
+                                                    const capturaFinalBase =
+                                                        r.capturaFinal ?? calcularCapturaFinal(r.conteo1, r.conteo2, conteo3EnVivo);
+                                                    const capturaFinalEnVivo = hasEditedConteo3
+                                                        ? calcularCapturaFinal(r.conteo1, r.conteo2, conteo3EnVivo)
+                                                        : capturaFinalBase;
 
-                                                    const variacionUds = (capturaFinalEnVivo ?? 0) - (r.congelada ?? 0);
+                                                    const variacionUds =
+                                                        capturaFinalEnVivo === null ? null : capturaFinalEnVivo - (r.congelada ?? 0);
                                                     const variacionDinero =
-                                                        r.costoUnitario === null ? null : variacionUds * r.costoUnitario;
+                                                        variacionUds === null || r.costoUnitario === null ? null : variacionUds * r.costoUnitario;
 
-                                                    const clsVarUds = variacionUds < 0 ? clsNeg : "";
+                                                    const clsVarUds = variacionUds !== null && variacionUds < 0 ? clsNeg : "";
                                                     const clsVarMoney = variacionDinero !== null && variacionDinero < 0 ? clsNeg : "";
 
                                                     const puedeEditarConteo3 =
@@ -245,7 +252,7 @@ const ConsolidacionTable = ({ rows }: Props) => {
                                                             <TableCell className="font-mono text-[11px] px-2 text-right align-top">{cellNum(r.congelada)}</TableCell>
 
                                                             <TableCell className={"font-mono text-[11px] px-2 text-right align-top " + clsVarUds}>
-                                                                {variacionUds}
+                                                                {variacionUds === null ? "" : variacionUds}
                                                             </TableCell>
 
                                                             <TableCell className={"font-mono text-[11px] px-2 text-right align-top " + clsVarMoney}>
@@ -257,6 +264,135 @@ const ConsolidacionTable = ({ rows }: Props) => {
                                             )}
                                         </TableBody>
                                     </Table>
+                                </div>
+
+                                <div className="md:hidden space-y-2">
+                                    {rows.length === 0 ? (
+                                        <div className="text-xs text-slate-500 py-6 text-center">No hay datos para mostrar.</div>
+                                    ) : (
+                                        rows.map((r) => {
+                                            const conteo3EnVivo = getConteo3EnVivo(r.key, r.conteo3);
+                                            const hasEditedConteo3 = Object.prototype.hasOwnProperty.call(conteos3Editados, r.key);
+                                            const capturaFinalBase =
+                                                r.capturaFinal ?? calcularCapturaFinal(r.conteo1, r.conteo2, conteo3EnVivo);
+                                            const capturaFinalEnVivo = hasEditedConteo3
+                                                ? calcularCapturaFinal(r.conteo1, r.conteo2, conteo3EnVivo)
+                                                : capturaFinalBase;
+
+                                            const variacionUds =
+                                                capturaFinalEnVivo === null ? null : capturaFinalEnVivo - (r.congelada ?? 0);
+                                            const variacionDinero =
+                                                variacionUds === null || r.costoUnitario === null ? null : variacionUds * r.costoUnitario;
+
+                                            const clsVarUds = variacionUds !== null && variacionUds < 0 ? clsNeg : "";
+                                            const clsVarMoney = variacionDinero !== null && variacionDinero < 0 ? clsNeg : "";
+
+                                            const puedeEditarConteo3 =
+                                                r.reconteoTexto === "Recontar" && (r.conteo3 ?? null) !== (r.conteo2 ?? null);
+
+                                            const mostrarAccionGrupoC3 = r.reconteoTexto === "Recontar";
+
+                                            return (
+                                                <div key={r.key} className="rounded-xl border bg-white p-3 shadow-sm">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                                                                <span className="font-mono text-slate-800">{txt(r.etiqueta)}</span>
+                                                                <span className="font-mono">{txt(r.codigoItem)}</span>
+                                                                <span className="font-mono">{txt(r.ubicacion)}</span>
+                                                                {txt(r.lote) ? <span className="font-mono">{txt(r.lote)}</span> : null}
+                                                            </div>
+                                                            <div className="mt-1 text-xs text-slate-900 leading-4 line-clamp-2">
+                                                                {txt(r.descripcion)}
+                                                            </div>
+                                                        </div>
+
+                                                        <Pill text={r.reconteoTexto} />
+                                                    </div>
+
+                                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+                                                        <div>
+                                                            <div className="text-slate-500">UdM</div>
+                                                            <div>{txt(r.udm)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Costo Unit.</div>
+                                                            <div className="font-mono">
+                                                                {r.costoUnitario === null ? "" : fmtMoney(r.costoUnitario)}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-slate-500">Grupo C1</div>
+                                                            <div>{txt(r.grupoC1)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Conteo 1</div>
+                                                            <div className="font-mono">{cellNum(r.conteo1)}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-slate-500">Grupo C2</div>
+                                                            <div>{txt(r.grupoC2)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Conteo 2</div>
+                                                            <div className="font-mono">{cellNum(r.conteo2)}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-slate-500">Grupo C3</div>
+                                                            <div>{txt(r.grupoC3)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Conteo 3</div>
+                                                            <div className="font-mono">
+                                                                {puedeEditarConteo3 ? (
+                                                                    <input
+                                                                        type="number"
+                                                                        className="w-full text-right text-[11px] border rounded px-2 py-1"
+                                                                        value={conteo3EnVivo ?? ""}
+                                                                        onChange={(e) => setConteo3EnVivo(r.key, parseNumberOrNull(e.target.value))}
+                                                                    />
+                                                                ) : (
+                                                                    cellNum(conteo3EnVivo)
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-slate-500">Captura Final</div>
+                                                            <div className="font-mono">{cellNum(capturaFinalEnVivo)}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Congelada</div>
+                                                            <div className="font-mono">{cellNum(r.congelada)}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-slate-500">Variación Uds</div>
+                                                            <div className={"font-mono " + clsVarUds}>
+                                                                {variacionUds === null ? "" : variacionUds}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-slate-500">Variación $$</div>
+                                                            <div className={"font-mono " + clsVarMoney}>
+                                                                {variacionDinero === null ? "" : fmtMoney(variacionDinero)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {mostrarAccionGrupoC3 ? (
+                                                        <div className="mt-3 flex justify-end">
+                                                            <button
+                                                                type="button"
+                                                                className="h-8 px-3 text-xs rounded-md border border-slate-200 bg-white shadow-sm hover:bg-slate-50"
+                                                                onClick={() => setModalRow(r)}
+                                                            >
+                                                                Acción Grupo C3
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            );
+                                        })
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -5,6 +5,7 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [kpiData, setKpiData] = useState<ConteoActualKpis>({
         conteosActivos: 0,
+        operacionesConsolidadas: 0,
         itemsContados: 0,
         noEncontrados: 0,
     });
@@ -17,10 +18,20 @@ const Dashboard = () => {
             try {
                 const resp = await obtenerConteoActualKpis();
                 if (!mounted) return;
-                setKpiData(resp.data ?? { conteosActivos: 0, itemsContados: 0, noEncontrados: 0 });
+                setKpiData(resp.data ?? {
+                    conteosActivos: 0,
+                    operacionesConsolidadas: 0,
+                    itemsContados: 0,
+                    noEncontrados: 0,
+                });
             } catch {
                 if (!mounted) return;
-                setKpiData({ conteosActivos: 0, itemsContados: 0, noEncontrados: 0 });
+                setKpiData({
+                    conteosActivos: 0,
+                    operacionesConsolidadas: 0,
+                    itemsContados: 0,
+                    noEncontrados: 0,
+                });
             } finally {
                 if (mounted) setLoading(false);
             }
@@ -33,7 +44,6 @@ const Dashboard = () => {
     }, []);
 
     const kpis = [
-        { label: "Conteos activos", value: String(kpiData.conteosActivos), delta: "" },
         { label: "Ítems contados", value: String(kpiData.itemsContados), delta: "" },
         { label: "No encontrados", value: String(kpiData.noEncontrados), delta: "" },
     ];
@@ -56,6 +66,23 @@ const Dashboard = () => {
 
             {/* KPIs */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-xl border bg-white p-4 shadow-sm">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <div className="text-xs text-slate-500">En conteo</div>
+                            <div className="mt-1 text-2xl font-semibold text-slate-900">
+                                {loading ? "..." : String(kpiData.conteosActivos)}
+                            </div>
+                        </div>
+                        <div className="border-l border-slate-200 pl-4">
+                            <div className="text-xs text-slate-500">Consolidadas</div>
+                            <div className="mt-1 text-2xl font-semibold text-slate-900">
+                                {loading ? "..." : String(kpiData.operacionesConsolidadas)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 {kpis.map((kpi) => (
                     <div
                         key={kpi.label}

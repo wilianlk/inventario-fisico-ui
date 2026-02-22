@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "react-toastify";
+import { cerrarConsolidacion, generarDI81 } from "@/services/consolidacionService";
 
 type Props = {
     operacionId: number | null;
@@ -31,32 +32,13 @@ const FinalizarInventarioModal = ({ operacionId, disabledReason, onFinalizado }:
         try {
             setLoading(true);
 
-            const cerrarResp = await fetch(`/api/consolidacion/cerrar/${operacionId}`, { method: "POST" });
+            await cerrarConsolidacion(operacionId);
 
-            if (!cerrarResp.ok) {
-                let msg = "Error al finalizar la operación y consolidación.";
-                try {
-                    const err = await cerrarResp.json();
-                    msg = err?.mensaje || msg;
-                } catch {}
-                throw new Error(msg);
-            }
+            const di81Resp = await generarDI81(operacionId);
+            const blob = di81Resp.data;
 
-            const di81Resp = await fetch(`/api/consolidacion/generar-di81/${operacionId}`, { method: "POST" });
-
-            if (!di81Resp.ok) {
-                let msg = "Error al generar DI81.";
-                try {
-                    const err = await di81Resp.json();
-                    msg = err?.mensaje || msg;
-                } catch {}
-                throw new Error(msg);
-            }
-
-            const blob = await di81Resp.blob();
-
-            const cd = di81Resp.headers.get("content-disposition") || "";
-            const match = cd.match(/filename="?([^"]+)"?/i);
+            const cd = String((di81Resp.headers as any)?.["content-disposition"] ?? "");
+            const match = cd.match(/filename=\"?([^\"]+)\"?/i);
             const filename = match?.[1] || `DI81_${operacionId}.txt`;
 
             descargarBlob(blob, filename);
@@ -65,7 +47,7 @@ const FinalizarInventarioModal = ({ operacionId, disabledReason, onFinalizado }:
             setOpen(false);
             onFinalizado?.();
         } catch (e: any) {
-            toast.error(e?.message || "Error inesperado.");
+            toast.error(e?.response?.data?.mensaje || e?.message || "Error inesperado.");
         } finally {
             setLoading(false);
         }

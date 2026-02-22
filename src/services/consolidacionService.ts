@@ -36,8 +36,29 @@ export interface ConsolidacionCierre {
     operacionesFinalizadas: number[];
 }
 
+export type ConteosFinalizadosOperacionResponse = {
+    cabecera?: {
+        operacionId?: number;
+        estado?: string;
+        finalizada?: boolean;
+        bodega?: string;
+        fechaOperacion?: string;
+        usuarioCreacion?: string;
+        fechaCreacion?: string;
+        numeroConteo?: number;
+        observaciones?: string;
+        totalRegistros?: number;
+        totalNoEncontrados?: number;
+        totalReferencias?: number;
+        conteos?: number[];
+        totalConteos?: number;
+    };
+    items?: BackendConsolidadoItem[];
+};
+
 export type ConteosFinalizadosResponse = {
-    items: BackendConsolidadoItem[];
+    operaciones?: ConteosFinalizadosOperacionResponse[];
+    items?: BackendConsolidadoItem[];
 };
 
 export const obtenerConteosFinalizados = () =>
@@ -47,7 +68,8 @@ export const obtenerConteosFinalizados = () =>
 
 export const cerrarConsolidacion = (operacionId: number) =>
     api.post(
-        `/consolidacion/cerrar/${operacionId}`
+        `/consolidacion/cerrar/${operacionId}`,
+        null
     );
 
 export const generarDI81 = (operacionId: number) =>
@@ -56,8 +78,3 @@ export const generarDI81 = (operacionId: number) =>
         null,
         { responseType: "blob" }
     ) as Promise<AxiosResponse<Blob>>;
-
-export const consolidacionFinalizada = (operacionId: number) =>
-    api.get<{ finalizada: boolean }>(
-        `/consolidacion/consolidacion-finalizada/${operacionId}`
-    );

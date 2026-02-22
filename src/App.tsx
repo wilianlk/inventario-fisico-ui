@@ -9,6 +9,7 @@ import Consolidacion from "@/pages/Consolidacion";
 import ConteoPorGrupo from "@/pages/ConteoPorGrupo";
 import ConteoNoEncontrados from "@/pages/ConteoNoEncontrados";
 import AuthLogin from "@/pages/AuthLogin";
+import ApiGlobalLoader from "@/components/ApiGlobalLoader";
 
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -37,6 +38,7 @@ function App() {
     return (
         <BrowserRouter>
             <div className="min-h-screen bg-slate-100 text-slate-900">
+                <ApiGlobalLoader />
                 {session ? <Navbar /> : null}
 
                 <main className="mx-auto max-w-6xl px-4 py-8">
