@@ -10,6 +10,7 @@ interface Props {
     editableDetalle: (d: DetalleConteo) => boolean;
 
     finalizandoByConteoId: Record<number, boolean>;
+    eliminandoByConteoId: Record<number, boolean>;
     highlightByConteoId: Record<number, boolean>;
 
     loadingItems: boolean;
@@ -17,7 +18,8 @@ interface Props {
     searchFilters: SearchFilters;
 
     onFinalizarClick: (detalle: DetalleConteo) => void;
-    onUpdateCantidad: (itemId: number, cantidad: number) => Promise<void>;
+    onEliminarClick: (detalle: DetalleConteo) => void;
+    onUpdateCantidad: (itemId: number, cantidad: number | null) => Promise<void>;
 
     isManaged: (itemId: number) => boolean;
     onSetManaged: (itemId: number, managed: boolean) => void;
@@ -36,11 +38,13 @@ export default function ConteosDetalleList({
                                                estadoByDetalleKey,
                                                editableDetalle,
                                                finalizandoByConteoId,
+                                               eliminandoByConteoId,
                                                highlightByConteoId,
                                                loadingItems,
                                                selectedItemId,
                                                searchFilters,
                                                onFinalizarClick,
+                                               onEliminarClick,
                                                onUpdateCantidad,
                                                isManaged,
                                                onSetManaged,
@@ -69,6 +73,7 @@ export default function ConteosDetalleList({
                 const st = estadoByDetalleKey[key] || "";
                 const editable = editableDetalle(detalle);
                 const finalizando = !!finalizandoByConteoId[detalle.conteoId];
+                const eliminando = !!eliminandoByConteoId[detalle.conteoId];
                 const highlight = !!(detalle.conteoId && highlightByConteoId[detalle.conteoId]);
 
                 return (
@@ -78,10 +83,12 @@ export default function ConteosDetalleList({
                         estado={st}
                         editable={editable}
                         finalizando={finalizando}
+                        eliminando={eliminando}
                         loadingItems={loadingItems}
                         selectedItemId={selectedItemId}
                         searchFilters={searchFilters}
                         onFinalizarClick={onFinalizarClick}
+                        onEliminarClick={onEliminarClick}
                         onUpdateCantidad={onUpdateCantidad}
                         isManaged={isManaged}
                         onSetManaged={onSetManaged}

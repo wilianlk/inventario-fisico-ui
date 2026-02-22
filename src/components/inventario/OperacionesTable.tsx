@@ -1,17 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
-import { Operacion, obtenerAvanceOperacion } from "@/services/inventarioService";
-import { GrupoConteo, getGruposPorOperacion } from "@/services/grupoConteoService";
+import { Operacion, OperacionConteoGrupo } from "@/services/inventarioService";
+import { eliminarConteo } from "@/services/conteoService";
 
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +16,8 @@ interface OperacionesTableProps {
     onEliminar: (id: number) => void;
     formatearFecha: (valor: string) => string;
     onVerGrupos: (op: Operacion) => void;
+    onAgregarConteo: (op: Operacion) => void;
+    onConteoEliminado?: () => void;
 }
 
 type EnlaceGrupo = {
@@ -38,28 +32,23 @@ const OperacionesTable = ({
                               onCerrar,
                               onEliminar,
                               formatearFecha,
-                              onVerGrupos,
+                              onAgregarConteo,
+                              onConteoEliminado,
                           }: OperacionesTableProps) => {
     const ops = Array.isArray(operaciones) ? operaciones : [];
-
-    const gruposPorConteo: Record<number, Operacion[]> = {};
-    for (const op of ops) {
-        const conteo = op.numeroConteo ?? 1;
-        if (!gruposPorConteo[conteo]) gruposPorConteo[conteo] = [];
-        gruposPorConteo[conteo].push(op);
-    }
-
-    const conteosOrdenados = Object.keys(gruposPorConteo)
-        .map((n) => Number(n))
-        .sort((a, b) => a - b);
 
     const [openEnlaces, setOpenEnlaces] = useState(false);
     const [opEnlaces, setOpEnlaces] = useState<Operacion | null>(null);
     const [loadingEnlaces, setLoadingEnlaces] = useState(false);
     const [enlaces, setEnlaces] = useState<EnlaceGrupo[]>([]);
-
-    const [avancePorOperacion, setAvancePorOperacion] = useState<Record<number, number>>({});
-    const avanceKeyRef = useRef<string>("");
+    const [eliminandoByConteoId, setEliminandoByConteoId] = useState<Record<number, boolean>>({});
+    const [confirmEliminarOpen, setConfirmEliminarOpen] = useState(false);
+    const [conteoAEliminar, setConteoAEliminar] = useState<{
+        conteoId: number;
+        operacionId: number;
+        numeroConteo: number;
+        grupoNombre: string;
+    } | null>(null);
 
     const origin = useMemo(() => {
         const fromEnv = (import.meta as any).env?.VITE_PUBLIC_APP_URL;
@@ -67,53 +56,6 @@ const OperacionesTable = ({
         const raw = fromEnv || fromStorage || window.location.origin;
         return String(raw).replace(/\/+$/, "");
     }, []);
-
-    useEffect(() => {
-        if (loading) return;
-        if (!ops.length) {
-            setAvancePorOperacion({});
-            avanceKeyRef.current = "";
-            return;
-        }
-
-        const ids = ops
-            .map((o) => o.id)
-            .filter((id) => Number.isFinite(id) && id > 0)
-            .sort((a, b) => a - b);
-        const key = ids.join("|");
-        if (key === avanceKeyRef.current) return;
-        avanceKeyRef.current = key;
-
-        let cancelado = false;
-
-        (async () => {
-            try {
-                const resultados = await Promise.all(
-                    ids.map(async (id) => {
-                        try {
-                            const r = await obtenerAvanceOperacion(id);
-                            return [id, r.data?.porcentaje ?? 0] as const;
-                        } catch {
-                            return [id, 0] as const;
-                        }
-                    })
-                );
-
-                if (cancelado) return;
-
-                const map: Record<number, number> = {};
-                for (const [id, porcentaje] of resultados) map[id] = porcentaje;
-
-                setAvancePorOperacion(map);
-            } catch {
-                if (!cancelado) toast.error("No se pudo cargar el avance.");
-            }
-        })();
-
-        return () => {
-            cancelado = true;
-        };
-    }, [loading, operaciones]);
 
     const copiar = async (texto: string) => {
         try {
@@ -124,33 +66,59 @@ const OperacionesTable = ({
         }
     };
 
-    const abrirEnlaces = async (op: Operacion) => {
-        setOpenEnlaces(true);
-        setOpEnlaces(op);
-        setEnlaces([]);
-        setLoadingEnlaces(true);
-
-        try {
-            const grupos: GrupoConteo[] = await getGruposPorOperacion(op.id);
-            const lista: EnlaceGrupo[] = (Array.isArray(grupos) ? grupos : []).map((g) => ({
-                grupoId: g.id,
-                nombre: g.nombre || `Grupo ${g.id}`,
-                url: `${origin}/conteo/${op.id}/${g.id}`,
-            }));
-            setEnlaces(lista);
-        } catch {
-            setEnlaces([]);
-            toast.error("No se pudieron cargar los grupos para generar enlaces.");
-        } finally {
-            setLoadingEnlaces(false);
-        }
-    };
-
     const cerrarEnlaces = () => {
         setOpenEnlaces(false);
         setOpEnlaces(null);
         setEnlaces([]);
         setLoadingEnlaces(false);
+    };
+
+    const abrirEnlaceGrupo = (op: Operacion, grupo: OperacionConteoGrupo) => {
+        const conteoId = Number(grupo?.conteoId ?? grupo?.id);
+        if (!Number.isFinite(conteoId) || conteoId <= 0) {
+            toast.error("No se pudo generar el enlace del grupo.");
+            return;
+        }
+        const grupoId = Number(grupo?.grupoId);
+        const nombre = grupo?.grupo ?? `Grupo ${grupoId || conteoId}`;
+        setOpenEnlaces(true);
+        setOpEnlaces(op);
+        setLoadingEnlaces(false);
+        setEnlaces([
+            {
+                grupoId: conteoId,
+                nombre,
+                url: `${origin}/conteo/${conteoId}`,
+            },
+        ]);
+    };
+
+    const openEliminarConteo = (conteoId: number, operacionId: number, numeroConteo: number, grupoNombre: string) => {
+        setConteoAEliminar({ conteoId, operacionId, numeroConteo, grupoNombre });
+        setConfirmEliminarOpen(true);
+    };
+
+    const confirmarEliminarConteo = async () => {
+        if (!conteoAEliminar) return;
+        const conteoId = conteoAEliminar.conteoId;
+        setEliminandoByConteoId((p) => ({ ...p, [conteoId]: true }));
+        try {
+            await eliminarConteo(conteoId);
+            toast.success("Conteo eliminado correctamente.");
+            onConteoEliminado?.();
+        } catch (error: any) {
+            const msg =
+                error?.response?.data?.mensaje ||
+                error?.response?.data?.message ||
+                (typeof error?.response?.data === "string" ? error.response.data : null) ||
+                error?.message ||
+                "No se pudo eliminar el conteo.";
+            toast.error(String(msg));
+        } finally {
+            setEliminandoByConteoId((p) => ({ ...p, [conteoId]: false }));
+            setConfirmEliminarOpen(false);
+            setConteoAEliminar(null);
+        }
     };
 
     return (
@@ -162,139 +130,217 @@ const OperacionesTable = ({
 
                 <CardContent>
                     {loading ? (
-                        <p className="text-sm text-slate-500 text-center">Cargando operaciones…</p>
+                        <p className="text-sm text-slate-500 text-center">Cargando operaciones...</p>
                     ) : ops.length === 0 ? (
                         <p className="text-sm text-slate-500 text-center">No hay operaciones registradas.</p>
                     ) : (
-                        <div className="space-y-8">
-                            {conteosOrdenados.map((conteo) => {
-                                const lista = gruposPorConteo[conteo] || [];
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-end">
+                                <span className="text-xs text-slate-500">
+                                    {ops.length} operación{ops.length !== 1 ? "es" : ""}
+                                </span>
+                            </div>
+
+                            {ops.map((op) => {
+                                const avanceRaw = op.porcentaje ?? 0;
+                                const avanceNum = Number(avanceRaw);
+                                const avance = Math.max(
+                                    0,
+                                    Math.min(100, Number.isFinite(avanceNum) ? avanceNum : 0)
+                                );
+                                const conteosByNumero = new Map<number, OperacionConteoGrupo[]>();
+                                if (Array.isArray(op.conteos)) {
+                                    for (const c of op.conteos) {
+                                        const numeroBase = Number(c?.numeroConteo) || 0;
+                                        const grupos = Array.isArray(c?.grupos) ? c.grupos : [];
+                                        for (const g of grupos) {
+                                            const numero = Number(g?.numeroConteo ?? numeroBase) || numeroBase;
+                                            if (!numero) continue;
+                                            const prev = conteosByNumero.get(numero) ?? [];
+                                            prev.push(g);
+                                            conteosByNumero.set(numero, prev);
+                                        }
+                                    }
+                                }
+                                const maxConteoFallback = Number.isFinite(Number(op.numeroConteo))
+                                    ? Math.max(1, Math.min(3, Number(op.numeroConteo)))
+                                    : 1;
+                                const conteosFromApi = Array.isArray(op.conteos)
+                                    ? op.conteos.flatMap((c) => {
+                                          const direct = Number(c?.numeroConteo);
+                                          const nested = Array.isArray(c?.grupos)
+                                              ? c.grupos.map((g) => Number(g?.numeroConteo))
+                                              : [];
+                                          return [direct, ...nested];
+                                      })
+                                      .filter((n) => Number.isFinite(n) && n > 0)
+                                    : [];
+                                const conteos = conteosFromApi.length > 0
+                                    ? Array.from(new Set(conteosFromApi)).sort((a, b) => a - b)
+                                    : Array.from({ length: maxConteoFallback }, (_, i) => i + 1);
+                                const maxConteo = conteos.length > 0 ? Math.max(...conteos) : maxConteoFallback;
 
                                 return (
-                                    <section key={conteo} className="space-y-3">
+                                    <section key={op.id} className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                                         <div className="flex items-center justify-between">
-                                            <h2 className="text-sm font-semibold text-slate-800">
-                                                Conteo {conteo}
-                                            </h2>
-                                            <span className="text-xs text-slate-500">
-                                                {lista.length} operación{lista.length !== 1 ? "es" : ""}
-                                            </span>
+                                            <h3 className="text-sm font-semibold text-slate-800">Operación {op.id}</h3>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-slate-500">
+                                                    {conteos.length} conteo{conteos.length !== 1 ? "s" : ""}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 px-3 text-xs"
+                                                    onClick={() => onAgregarConteo(op)}
+                                                    disabled={op.estado === "CERRADA"}
+                                                >
+                                                    Agregar conteo
+                                                </Button>
+                                            </div>
                                         </div>
 
-                                        <div className="rounded-md border border-slate-200 overflow-hidden">
-                                            <Table>
-                                                <TableHeader className="bg-slate-50">
-                                                    <TableRow>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            ID
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Bodega
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Fecha
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Estado
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Usuario
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Avance
-                                                        </TableHead>
-                                                        <TableHead className="text-center text-xs font-medium text-slate-600">
-                                                            Acciones
-                                                        </TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] text-slate-500">Conteos de la operación</div>
+                                            <div className="space-y-2">
+                                                {conteos.map((c) => {
+                                                    const gruposConteo = conteosByNumero.get(c) ?? [];
 
-                                                <TableBody>
-                                                    {lista.map((op) => {
-                                                        const avanceRaw =
-                                                            avancePorOperacion[op.id] ??
-                                                            op.porcentajeAvance ??
-                                                            0;
-
-                                                        const avance = Math.max(
-                                                            0,
-                                                            Math.min(
-                                                                100,
-                                                                Number.isFinite(avanceRaw) ? avanceRaw : 0
-                                                            )
-                                                        );
-
-                                                        return (
-                                                            <TableRow key={op.id} className="hover:bg-slate-50">
-                                                                <TableCell className="text-center text-sm text-slate-700">
-                                                                    {op.id}
-                                                                </TableCell>
-                                                                <TableCell className="text-center text-sm text-slate-700">
-                                                                    {op.bodega}
-                                                                </TableCell>
-                                                                <TableCell className="text-center text-sm text-slate-700">
-                                                                    {formatearFecha(op.fecha)}
-                                                                </TableCell>
-                                                                <TableCell className="text-center text-sm text-slate-700">
-                                                                    {op.estado}
-                                                                </TableCell>
-                                                                <TableCell className="text-center text-sm text-slate-700">
-                                                                    {op.usuarioCreacion}
-                                                                </TableCell>
-                                                                <TableCell className="text-center">
-                                                                    <div className="flex flex-col items-center gap-1">
-                                                                        <div className="h-2 w-28 rounded-full bg-slate-200 overflow-hidden">
+                                                    return (
+                                                        <div
+                                                            key={`${op.id}-${c}`}
+                                                            className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                                                        >
+                                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+                                                                        <div className="text-xs font-semibold text-slate-800">
+                                                                            Conteo {c}
+                                                                        </div>
+                                                                        <span className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                                                                            Op: {op.estado}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="mt-1 flex flex-nowrap items-center gap-2 overflow-x-auto">
+                                                                        <div className="h-2 w-28 shrink-0 rounded-full bg-slate-200 overflow-hidden">
                                                                             <div
                                                                                 className="h-full bg-emerald-500"
                                                                                 style={{ width: `${avance}%` }}
                                                                             />
                                                                         </div>
-                                                                        <span className="text-[11px] text-slate-600">
+                                                                        <span className="shrink-0 text-[11px] text-slate-600">
                                                                             {avance}%
                                                                         </span>
+                                                                        <div className="ml-2 flex flex-nowrap items-center gap-1.5 shrink-0">
+                                                                            <span className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">
+                                                                                Bodega {op.bodega}
+                                                                            </span>
+                                                                            <span className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">
+                                                                                {formatearFecha(op.fecha)}
+                                                                            </span>
+                                                                            <span className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">
+                                                                                {op.usuarioCreacion}
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
-                                                                </TableCell>
-                                                                <TableCell className="text-center">
-                                                                    <div className="flex gap-2 justify-center flex-wrap">
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className="h-8 px-3 text-xs"
-                                                                            onClick={() => onVerGrupos(op)}
-                                                                        >
-                                                                            Grupos
-                                                                        </Button>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className="h-8 px-3 text-xs"
-                                                                            onClick={() => onCerrar(op.id)}
-                                                                            disabled={op.estado === "CERRADA"}
-                                                                        >
-                                                                            Cerrar
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="destructive"
-                                                                            size="sm"
-                                                                            className="h-8 px-3 text-xs"
-                                                                            onClick={() => onEliminar(op.id)}
-                                                                        >
-                                                                            Eliminar
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="secondary"
-                                                                            size="sm"
-                                                                            className="h-8 px-3 text-xs"
-                                                                            onClick={() => abrirEnlaces(op)}
-                                                                        >
-                                                                            Enlaces
-                                                                        </Button>
+                                                                </div>
+
+                                                                <div className="flex gap-2 flex-wrap sm:justify-end">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-7 px-2 text-[11px]"
+                                                                        onClick={() => onCerrar(op.id)}
+                                                                        disabled={op.estado === "CERRADA"}
+                                                                    >
+                                                                        Cerrar operación
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="destructive"
+                                                                        className="h-7 px-2 text-[11px]"
+                                                                        onClick={() => onEliminar(op.id)}
+                                                                    >
+                                                                        Eliminar operación
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+
+                                                            {gruposConteo.length > 0 ? (
+                                                                <div className="mt-2 space-y-1">
+                                                                    <div className="text-[11px] text-slate-500">
+                                                                        Grupos del conteo
                                                                     </div>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        );
-                                                    })}
-                                                </TableBody>
-                                            </Table>
+                                                                    <div className="space-y-1">
+                                                                        {gruposConteo.map((g) => {
+                                                                            const conteoId = Number(g?.conteoId ?? g?.id);
+                                                                            const grupoNombre =
+                                                                                (g as any)?.grupo ?? (g as any)?.grupoNombre ?? `Grupo ${g?.grupoId}`;
+                                                                            const estadoGrupo = String(g?.estado ?? "").trim().toUpperCase();
+                                                                            const disabled = !Number.isFinite(conteoId);
+                                                                            const grupoId = Number(g?.grupoId);
+
+                                                                            return (
+                                                                                <div
+                                                                                    key={`${c}-${g?.grupoId}-${conteoId || "na"}`}
+                                                                                    className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                                                                                >
+                                                                                    <div className="min-w-0 flex items-center gap-2 text-sm text-slate-700">
+                                                                                        <span className="font-semibold text-slate-900 leading-none">{grupoNombre}</span>
+                                                                                        {Number.isFinite(conteoId) ? (
+                                                                                            <span className="text-xs text-slate-400 leading-none">#{conteoId}</span>
+                                                                                        ) : null}
+                                                                                        {Number.isFinite(grupoId) ? (
+                                                                                            <span className="text-xs text-slate-300 leading-none">(grupo {grupoId})</span>
+                                                                                        ) : null}
+                                                                                        {estadoGrupo ? (
+                                                                                            <span className="ml-1 inline-flex h-6 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-700">
+                                                                                                {estadoGrupo}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-2 sm:justify-end">
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="secondary"
+                                                                                            className="h-8 px-3 text-xs"
+                                                                                            onClick={() => abrirEnlaceGrupo(op, g)}
+                                                                                        >
+                                                                                            Enlace
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="destructive"
+                                                                                            className="h-8 px-3 text-xs"
+                                                                                            onClick={() =>
+                                                                                                openEliminarConteo(
+                                                                                                    conteoId,
+                                                                                                    op.id,
+                                                                                                    c,
+                                                                                                    grupoNombre
+                                                                                                )
+                                                                                            }
+                                                                                            disabled={
+                                                                                                disabled ||
+                                                                                                !!eliminandoByConteoId[conteoId]
+                                                                                            }
+                                                                                        >
+                                                                                            {eliminandoByConteoId[conteoId]
+                                                                                                ? "Eliminando..."
+                                                                                                : "Eliminar conteo"}
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
+
                                     </section>
                                 );
                             })}
@@ -320,7 +366,7 @@ const OperacionesTable = ({
 
                     <div className="space-y-3">
                         {loadingEnlaces ? (
-                            <p className="text-sm text-slate-500 text-center">Cargando enlaces…</p>
+                            <p className="text-sm text-slate-500 text-center">Cargando enlaces...</p>
                         ) : enlaces.length === 0 ? (
                             <p className="text-sm text-slate-500 text-center">
                                 No hay grupos asociados para generar enlaces.
@@ -362,8 +408,76 @@ const OperacionesTable = ({
                     </div>
                 </DialogContent>
             </Dialog>
+
+            <Dialog
+                open={confirmEliminarOpen}
+                onOpenChange={(v) => {
+                    if (!v) {
+                        setConfirmEliminarOpen(false);
+                        setConteoAEliminar(null);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogDescription>
+                            ¿Eliminar este conteo individual? Esta acción no se puede deshacer.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {conteoAEliminar ? (
+                        <div className="text-sm text-slate-700 space-y-1">
+                            <div>
+                                <span className="font-medium">Operación:</span> {conteoAEliminar.operacionId}
+                            </div>
+                            <div>
+                                <span className="font-medium">Grupo:</span> {conteoAEliminar.grupoNombre}
+                            </div>
+                            <div>
+                                <span className="font-medium">Conteo:</span> {conteoAEliminar.numeroConteo}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <div className="mt-4 flex justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setConfirmEliminarOpen(false);
+                                setConteoAEliminar(null);
+                            }}
+                            disabled={
+                                conteoAEliminar ? !!eliminandoByConteoId[conteoAEliminar.conteoId] : false
+                            }
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={confirmarEliminarConteo}
+                            disabled={
+                                conteoAEliminar ? !!eliminandoByConteoId[conteoAEliminar.conteoId] : false
+                            }
+                        >
+                            {conteoAEliminar && eliminandoByConteoId[conteoAEliminar.conteoId]
+                                ? "Eliminando..."
+                                : "Eliminar conteo"}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </>
     );
 };
 
 export default OperacionesTable;
+
+
+
+
+
+
+
+

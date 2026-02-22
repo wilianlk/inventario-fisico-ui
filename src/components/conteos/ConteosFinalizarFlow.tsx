@@ -116,7 +116,11 @@ const ConteosFinalizarFlow = forwardRef<ConteosFinalizarFlowHandle, Props>(funct
 
         setFinalizandoByConteoId((p) => ({ ...p, [conteoId]: true }));
         try {
-            await finalizarConteo(conteoId);
+            await finalizarConteo({
+                operacionId: detalle.operacionId,
+                numeroConteo: detalle.numeroConteo,
+                conteoId,
+            });
             setDetalles((prev) =>
                 prev.map((d) => (d.conteoId === conteoId ? { ...d, estadoConteo: "CERRADO" } : d))
             );

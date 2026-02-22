@@ -6,7 +6,7 @@ import { useConteoTableState, type SearchFilters, type ScanApply } from "./useCo
 interface Props {
     items: ItemConteo[];
     loading: boolean;
-    onUpdateCantidad: (id: number, cantidad: number) => Promise<void>;
+    onUpdateCantidad: (id: number, cantidad: number | null) => Promise<void>;
     conteoId?: number;
     selectedItemId?: number | null;
     searchFilters: SearchFilters;

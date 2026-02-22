@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -8,6 +8,7 @@ import FinalizarConteoDialog from "@/components/conteos/FinalizarConteoDialog";
 import { useConteoScan } from "@/hooks/useConteoScan";
 
 import {
+    obtenerConteoPorId,
     obtenerConteoPorGrupo,
     actualizarCantidadContada,
     finalizarConteo,
@@ -20,10 +21,15 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 function ConteoPorGrupo() {
-    const { operacionId, grupoId } = useParams<{ operacionId: string; grupoId: string }>();
+    const { operacionId, grupoId, conteoId } = useParams<{
+        operacionId?: string;
+        grupoId?: string;
+        conteoId?: string;
+    }>();
 
-    const opId = useMemo(() => Number(operacionId), [operacionId]);
-    const gId = useMemo(() => Number(grupoId), [grupoId]);
+    const opIdParam = useMemo(() => Number(operacionId), [operacionId]);
+    const gIdParam = useMemo(() => Number(grupoId), [grupoId]);
+    const conteoIdParam = useMemo(() => Number(conteoId), [conteoId]);
 
     const [loading, setLoading] = useState(true);
     const [info, setInfo] = useState<ConteoPorGrupoResponse | null>(null);
@@ -43,15 +49,14 @@ function ConteoPorGrupo() {
     });
 
     const scanInputRef = useRef<HTMLInputElement | null>(null);
-    const didLoadRef = useRef(false);
     const scanTimerRef = useRef<number | null>(null);
 
-    // Opción B: ahora nullable para no “inventar 0”
+    // Opción B: ahora nullable para no "inventar 0"
     const qtyByIdRef = useRef<Record<number, number | null>>({});
     const confirmedByIdRef = useRef<Record<number, number | null>>({});
     const queueByIdRef = useRef<Record<number, Promise<void>>>({});
 
-    // Opción B: tracking de “gestionado”
+    // Opción B: tracking de "gestionado"
     const gestionadoByIdRef = useRef<Record<number, boolean>>({});
 
     const [finalizarOpen, setFinalizarOpen] = useState(false);
@@ -67,7 +72,7 @@ function ConteoPorGrupo() {
 
     const editable = useMemo(() => {
         if (!estadoConteo) return true;
-        return estadoConteo === "ABIERTO";
+        return estadoConteo === "EN_CONTEO" || estadoConteo === "ABIERTO";
     }, [estadoConteo]);
 
     const isManaged = (id: number) => !!gestionadoByIdRef.current[id];
@@ -93,8 +98,7 @@ function ConteoPorGrupo() {
 
             map[it.id] = val;
 
-            // Opción B: 0 inicial NO es gestionado hasta que el usuario toque el ítem
-            managed[it.id] = val !== null && val !== undefined && val !== 0;
+            managed[it.id] = val !== null && val !== undefined;
         }
 
         qtyByIdRef.current = map;
@@ -115,7 +119,7 @@ function ConteoPorGrupo() {
         );
     };
 
-    const enqueuePersist = (itemId: number, cantidad: number) => {
+    const enqueuePersist = (itemId: number, cantidad: number | null) => {
         const prev = queueByIdRef.current[itemId] ?? Promise.resolve();
 
         const next = prev
@@ -130,22 +134,20 @@ function ConteoPorGrupo() {
     };
 
     useEffect(() => {
-        if (didLoadRef.current) return;
-        didLoadRef.current = true;
-
         const cargar = async () => {
-            if (!Number.isFinite(opId) || !Number.isFinite(gId) || opId <= 0 || gId <= 0) {
-                setLoading(false);
-                setInfo(null);
-                setItems([]);
-                toast.error("Enlace inválido.");
-                return;
-            }
-
             setLoading(true);
             try {
-                const resp = await obtenerConteoPorGrupo(opId, gId);
-                const data = resp.data;
+                let data: ConteoPorGrupoResponse;
+
+                if (Number.isFinite(conteoIdParam) && conteoIdParam > 0) {
+                    const resp = await obtenerConteoPorId(conteoIdParam);
+                    data = resp.data;
+                } else if (Number.isFinite(opIdParam) && opIdParam > 0 && Number.isFinite(gIdParam) && gIdParam > 0) {
+                    const resp = await obtenerConteoPorGrupo(opIdParam, gIdParam);
+                    data = resp.data;
+                } else {
+                    throw new Error("Enlace inválido.");
+                }
                 setInfo(data);
 
                 const lista = data.items || [];
@@ -177,32 +179,32 @@ function ConteoPorGrupo() {
         };
 
         void cargar();
-    }, [opId, gId]);
+    }, [opIdParam, gIdParam, conteoIdParam]);
 
     useEffect(() => {
         if (!editable) return;
         scanInputRef.current?.focus();
     }, [items.length, editable]);
 
-    const guardarCantidadAbsoluta = async (itemId: number, cantidad: number) => {
+    const guardarCantidadAbsoluta = async (itemId: number, cantidad: number | null) => {
         if (!editable) {
             toast.info("Conteo cerrado. Solo lectura.");
             return;
         }
 
-        const n = Number(cantidad);
-        const nueva = Number.isFinite(n) ? Math.max(0, n) : 0;
+        const nueva = cantidad === null ? null : Math.max(0, Number(cantidad) || 0);
 
         const prevConfirm = confirmedByIdRef.current[itemId] ?? null;
 
         setLocalCantidad(itemId, nueva);
-        setManaged(itemId, true); // 0 explícito cuenta como gestionado
+        setManaged(itemId, nueva !== null);
 
         try {
             await enqueuePersist(itemId, nueva);
             toast.success("Cantidad contada guardada.");
         } catch (error: any) {
             setLocalCantidad(itemId, prevConfirm);
+            setManaged(itemId, prevConfirm !== null);
             const msg =
                 error?.response?.data?.mensaje ||
                 error?.response?.data?.message ||
@@ -254,8 +256,8 @@ function ConteoPorGrupo() {
         detalles: info
             ? [
                 {
-                    operacionId: opId,
-                    grupoId: gId,
+                    operacionId: info.operacionId,
+                    grupoId: info.grupoId,
                     grupo: info.grupo ?? "",
                     conteoId: info.conteoId,
                     numeroConteo: info.numeroConteo,
@@ -296,7 +298,7 @@ function ConteoPorGrupo() {
             scanValueRef.current = "";
             setScanValue("");
 
-            // ✅ Ajuste: forzar retorno al input del escáner (gana sobre focus internos)
+            // Ajuste: forzar retorno al input del escáner (gana sobre focus internos)
             requestAnimationFrame(() => {
                 setTimeout(() => {
                     scanInputRef.current?.focus();
@@ -371,7 +373,11 @@ function ConteoPorGrupo() {
 
         setFinalizando(true);
         try {
-            await finalizarConteo(info.conteoId);
+            await finalizarConteo({
+                operacionId: info.operacionId,
+                numeroConteo: info.numeroConteo,
+                conteoId: info.conteoId,
+            });
             setInfo((prev) => (prev ? { ...prev, estadoConteo: "CERRADO" } : prev));
             toast.success("Conteo cerrado correctamente.");
             setFinalizarOpen(false);
@@ -395,8 +401,8 @@ function ConteoPorGrupo() {
                 <div className="flex flex-col gap-2">
                     <div className="text-sm text-slate-600">Conteo por grupo</div>
                     <div className="text-base font-semibold text-slate-900">
-                        Operación {Number.isFinite(opId) ? opId : "-"} ·{" "}
-                        {info?.grupo ? info.grupo : `Grupo ${Number.isFinite(gId) ? gId : "-"}`}
+                        Operación {Number.isFinite(info?.operacionId) ? info?.operacionId : Number.isFinite(opIdParam) ? opIdParam : "-"} ·{" "}
+                        {info?.grupo ? info.grupo : `Grupo ${Number.isFinite(info?.grupoId) ? info?.grupoId : Number.isFinite(gIdParam) ? gIdParam : "-"}`}
                         {info?.numeroConteo ? ` · Conteo ${info.numeroConteo}` : ""}
                         {estadoConteo ? ` · ${estadoConteo}` : ""}
                     </div>
@@ -553,3 +559,8 @@ function ConteoPorGrupo() {
 }
 
 export default ConteoPorGrupo;
+
+
+
+
+

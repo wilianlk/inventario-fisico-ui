@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { GrupoConteo } from "@/services/grupoConteoService";
 import {
     Dialog,
@@ -12,6 +13,7 @@ import { useGrupoUbicaciones } from "./ubicaciones/useGrupoUbicaciones";
 import { GrupoUbicacionesHeader } from "./ubicaciones/GrupoUbicacionesHeader";
 import { GrupoUbicacionesFilters } from "./ubicaciones/GrupoUbicacionesFilters";
 import { GrupoUbicacionesTable } from "./ubicaciones/GrupoUbicacionesTable";
+import { toast } from "react-toastify";
 
 interface GrupoUbicacionesProps {
     open: boolean;
@@ -20,6 +22,7 @@ interface GrupoUbicacionesProps {
 }
 
 export function GrupoUbicaciones({ open, grupo, onClose }: GrupoUbicacionesProps) {
+    const lastErrorRef = useRef<string | null>(null);
     const {
         itemsVista,
         loading,
@@ -47,6 +50,13 @@ export function GrupoUbicaciones({ open, grupo, onClose }: GrupoUbicacionesProps
         N,
         dupCount,
     } = useGrupoUbicaciones({ open, grupo, onClose });
+
+    useEffect(() => {
+        if (!error) return;
+        if (lastErrorRef.current === error) return;
+        lastErrorRef.current = error;
+        toast.error(error);
+    }, [error]);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -76,12 +86,6 @@ export function GrupoUbicaciones({ open, grupo, onClose }: GrupoUbicacionesProps
                     onDupModeChange={setDupMode}
                     onClear={clearFilters}
                 />
-
-                {error && (
-                    <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-                        {error}
-                    </div>
-                )}
 
                 <GrupoUbicacionesTable
                     items={itemsVista}

@@ -21,7 +21,6 @@ export function GrupoAsignarOperacion({
                                       }: GrupoAsignarOperacionProps) {
     const [operacionId, setOperacionId] = useState("");
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const extraerMsgError = (err: any, fallback: string) => {
         const data = err?.response?.data;
         if (typeof data === "string" && data.trim()) return data;
@@ -39,14 +38,12 @@ export function GrupoAsignarOperacion({
         const opId = Number(operacionId);
         if (!opId) return;
         setLoading(true);
-        setError(null);
         try {
             await asignarOperacionAGrupo(opId, grupo.id);
             onAssigned();
             onClose();
         } catch (err: any) {
             const msg = extraerMsgError(err, "Error al asignar la operacion.");
-            setError(msg);
             toast.error(msg);
         } finally {
             setLoading(false);
@@ -77,12 +74,6 @@ export function GrupoAsignarOperacion({
                             placeholder="Ej: 1001"
                         />
                     </div>
-
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                            {error}
-                        </div>
-                    )}
 
                     <DialogFooter className="gap-2">
                         <Button

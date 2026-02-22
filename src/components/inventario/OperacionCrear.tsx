@@ -1,4 +1,4 @@
-import { useMemo, useState, ChangeEvent, useEffect } from "react";
+﻿import { useMemo, useState, ChangeEvent, useEffect } from "react";
 import { toast } from "react-toastify";
 
 import { crearOperacion, CrearOperacionRequest } from "@/services/inventarioService";
@@ -17,19 +17,11 @@ interface OperacionCrearProps {
     conteoForzado?: number;
 }
 
-type EnlaceGrupo = {
-    grupoId: number;
-    nombre: string;
-    url: string;
-};
-
-type EnlacesOperacion = {
-    operacionId: number;
-    numeroConteo: number;
-    enlaces: EnlaceGrupo[];
-};
-
-const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: OperacionCrearProps) => {
+const OperacionCrear = ({
+    gruposDisponibles,
+    onCreated,
+    conteoForzado,
+}: OperacionCrearProps) => {
     const conteoForzadoValido =
         typeof conteoForzado === "number" && Number.isFinite(conteoForzado) ? Number(conteoForzado) : null;
 
@@ -44,7 +36,6 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
 
     const [errores, setErrores] = useState<ErroresForm>({});
     const [loading, setLoading] = useState(false);
-    const [enlacesOperacion, setEnlacesOperacion] = useState<EnlacesOperacion | null>(null);
     const [submitAttempted, setSubmitAttempted] = useState(false);
 
     useEffect(() => {
@@ -59,10 +50,11 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
 
     const canCreate = useMemo(() => {
         const hasFecha = !!form.fecha;
+        const nConteo = Number(form.numeroConteo);
         const conteoOk =
             conteoForzadoValido != null
-                ? Number(form.numeroConteo) === Number(conteoForzadoValido)
-                : !!form.numeroConteo && [1, 2, 3].includes(Number(form.numeroConteo));
+                ? nConteo === Number(conteoForzadoValido)
+                : !!form.numeroConteo && [1, 2, 3].includes(nConteo);
 
         const hasGrupos = Array.isArray(form.gruposIds) && form.gruposIds.length > 0;
 
@@ -96,7 +88,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
         }));
     };
 
-    const handleNumeroConteoChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const handleNumeroConteoChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         if (conteoForzadoValido != null) return;
 
         const valor = Number(e.target.value) || 1;
@@ -122,15 +114,6 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
         if (checked || (!checked && (form.gruposIds || []).length > 1)) limpiarErrorCampo("gruposIds");
     };
 
-    const copiar = async (texto: string) => {
-        try {
-            await navigator.clipboard.writeText(texto);
-            toast.success("Enlace copiado.");
-        } catch {
-            toast.error("No se pudo copiar el enlace.");
-        }
-    };
-
     const handleCrear = async () => {
         setSubmitAttempted(true);
 
@@ -146,13 +129,15 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
 
         const nConteo = Number(form.numeroConteo);
         const conteoValido =
-            conteoForzadoValido != null ? nConteo === Number(conteoForzadoValido) : [1, 2, 3].includes(nConteo);
+            conteoForzadoValido != null
+                ? nConteo === Number(conteoForzadoValido)
+                : [1, 2, 3].includes(nConteo);
 
         if (!conteoValido) {
             if (conteoForzadoValido != null) {
-                toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creación.`);
+                toast.warning(`El conteo debe ser ${conteoForzadoValido} para esta creaciÃ³n.`);
             } else {
-                toast.warning("Debes seleccionar un número de conteo válido (1, 2 o 3).");
+                toast.warning("Debes seleccionar un nÃºmero de conteo vÃ¡lido (1, 2 o 3).");
             }
             return;
         }
@@ -169,36 +154,9 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
                 gruposIds: gruposSeleccionados,
             };
 
-            const res: any = await crearOperacion(payload);
+            await crearOperacion(payload);
 
-            const operacionId =
-                Number(res?.id) ||
-                Number(res?.data?.id) ||
-                Number(res?.operacionId) ||
-                Number(res?.data?.operacionId);
-
-            toast.success("Operación creada correctamente.");
-
-            if (Number.isFinite(operacionId) && operacionId > 0) {
-                const origin = window.location.origin;
-                const enlaces: EnlaceGrupo[] = gruposSeleccionados.map((gid) => {
-                    const g = gruposDisponibles.find((x: any) => x.id === gid);
-                    return {
-                        grupoId: gid,
-                        nombre: (g as any)?.nombre || `Grupo ${gid}`,
-                        url: `${origin}/conteo/${operacionId}/${gid}`,
-                    };
-                });
-
-                setEnlacesOperacion({
-                    operacionId,
-                    numeroConteo: payload.numeroConteo || 1,
-                    enlaces,
-                });
-            } else {
-                setEnlacesOperacion(null);
-                toast.warning("No se pudo obtener el ID de la operación para generar enlaces.");
-            }
+            toast.success("OperaciÃ³n creada correctamente.");
 
             setForm((prev) => ({
                 ...prev,
@@ -216,7 +174,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
                 error?.response?.data?.mensaje ||
                 error?.response?.data?.message ||
                 error?.response?.data ||
-                "No se pudo crear la operación.";
+                "No se pudo crear la operaciÃ³n.";
             toast.error(msg);
         } finally {
             setLoading(false);
@@ -227,7 +185,7 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
         <div className="space-y-3">
             {submitAttempted && faltantes.length > 0 ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                    <div className="font-semibold">Faltan datos para crear la operación</div>
+                    <div className="font-semibold">Faltan datos para crear la operaciÃ³n</div>
                     <ul className="mt-1 list-disc pl-5 text-xs">
                         {faltantes.map((x) => (
                             <li key={x}>{x}</li>
@@ -248,53 +206,9 @@ const OperacionCrear = ({ gruposDisponibles, onCreated, conteoForzado }: Operaci
                 canCreate={canCreate}
                 errores={errores}
             />
-
-            {enlacesOperacion ? (
-                <div className="rounded-xl border bg-white p-4 shadow-sm space-y-3">
-                    <div className="text-center">
-                        <div className="text-sm text-slate-600">Enlaces para tablets</div>
-                        <div className="text-base font-semibold text-slate-900">
-                            Operación {enlacesOperacion.operacionId} · Conteo {enlacesOperacion.numeroConteo}
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        {enlacesOperacion.enlaces.map((e) => (
-                            <div
-                                key={e.grupoId}
-                                className="flex flex-col gap-2 rounded-lg border bg-white p-3 md:flex-row md:items-center"
-                            >
-                                <div className="min-w-[160px] text-sm font-medium text-slate-800">{e.nombre}</div>
-
-                                <input
-                                    readOnly
-                                    value={e.url}
-                                    className="w-full rounded-md border bg-slate-50 px-3 py-2 font-mono text-xs text-slate-900"
-                                />
-
-                                <div className="flex gap-2 md:justify-end">
-                                    <button
-                                        type="button"
-                                        className="h-8 rounded-md bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800"
-                                        onClick={() => copiar(e.url)}
-                                    >
-                                        Copiar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 hover:bg-slate-50"
-                                        onClick={() => window.open(e.url, "_blank")}
-                                    >
-                                        Abrir
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            ) : null}
         </div>
     );
 };
 
 export default OperacionCrear;
+

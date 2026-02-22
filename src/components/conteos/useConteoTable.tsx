@@ -35,7 +35,7 @@ export type ScanApply =
 interface UseConteoTableStateArgs {
     items: ItemConteo[];
     loading: boolean;
-    onUpdateCantidad: (id: number, cantidad: number) => Promise<void>;
+    onUpdateCantidad: (id: number, cantidad: number | null) => Promise<void>;
     conteoId?: number;
     selectedItemId?: number | null;
     searchFilters: SearchFilters;
@@ -71,6 +71,8 @@ export function useConteoTableState({
     const totalRefs = useRef<Record<number, HTMLInputElement | null>>({});
     const clearSavedTimersRef = useRef<Record<number, number>>({});
     const dirtyByIdRef = useRef<Record<number, boolean>>({});
+    const forcePersistByIdRef = useRef<Record<number, boolean>>({});
+    const clearRequestedByIdRef = useRef<Record<number, boolean>>({});
     const debounceTimersRef = useRef<Record<number, number>>({});
     const lastScanApplyAtRef = useRef<Record<number, number>>({});
     const lastToastAtRef = useRef<Record<string, number>>({});
@@ -287,19 +289,65 @@ export function useConteoTableState({
 
         const p = partsRef.current[item.id] ?? getParts(item);
         const total = getTotalDisplay(p);
+        const forcePersist = !!forcePersistByIdRef.current[item.id];
+        const clearRequested = !!clearRequestedByIdRef.current[item.id];
 
         const incomingNorm = normalizeIncoming(item.id, (item as any).cantidadContada);
         const last: number | null = lastSavedTotalRef.current[item.id] ?? (incomingNorm ?? null);
 
         if (total === null) {
-            dirtyByIdRef.current[item.id] = false;
-            if (last !== null) {
-                setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: String(last) });
+            if (!clearRequested) {
+                dirtyByIdRef.current[item.id] = false;
+                forcePersistByIdRef.current[item.id] = false;
+                if (last !== null) {
+                    setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: String(last) });
+                }
+                return;
+            }
+
+            if (last === null) {
+                dirtyByIdRef.current[item.id] = false;
+                forcePersistByIdRef.current[item.id] = false;
+                clearRequestedByIdRef.current[item.id] = false;
+                return;
+            }
+
+            setRowState(item.id, { status: "saving" });
+
+            try {
+                await onUpdateCantidad(item.id, null);
+                lastSavedTotalRef.current[item.id] = null;
+                dirtyByIdRef.current[item.id] = false;
+                forcePersistByIdRef.current[item.id] = false;
+                clearRequestedByIdRef.current[item.id] = false;
+                setRowState(item.id, { status: "saved" });
+                markSavedTemporarily(item.id);
+            } catch (err) {
+                const { status, message } = extractError(err);
+                const isLocked = status === 409;
+                if (isLocked) setLocked(true);
+
+                setRowState(item.id, { status: "error", message, locked: isLocked });
+                toastErrorOnce(message);
+
+                if (!isLocked) {
+                    dirtyByIdRef.current[item.id] = true;
+                    return;
+                }
+
+                dirtyByIdRef.current[item.id] = false;
+                forcePersistByIdRef.current[item.id] = false;
+                clearRequestedByIdRef.current[item.id] = false;
+                onSetManaged?.(item.id, true);
+                const base = String(last);
+                setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: base });
             }
             return;
         }
 
-        if (last !== null && total === last) {
+        clearRequestedByIdRef.current[item.id] = false;
+
+        if (last !== null && total === last && !forcePersist) {
             dirtyByIdRef.current[item.id] = false;
             return;
         }
@@ -310,6 +358,7 @@ export function useConteoTableState({
             await onUpdateCantidad(item.id, total);
             lastSavedTotalRef.current[item.id] = total;
             dirtyByIdRef.current[item.id] = false;
+            forcePersistByIdRef.current[item.id] = false;
             setRowState(item.id, { status: "saved" });
             markSavedTemporarily(item.id);
         } catch (err) {
@@ -326,6 +375,7 @@ export function useConteoTableState({
             }
 
             dirtyByIdRef.current[item.id] = false;
+            forcePersistByIdRef.current[item.id] = false;
             const base = last === null ? "" : String(last);
             setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: base });
         }
@@ -357,12 +407,16 @@ export function useConteoTableState({
 
         if (!anyManualFilled(next)) {
             onSetManaged?.(item.id, false);
+            forcePersistByIdRef.current[item.id] = false;
+            clearRequestedByIdRef.current[item.id] = true;
             setPart(item.id, { ...next, total: "" });
             scheduleGuardarDebounced(item);
             return;
         }
 
         onSetManaged?.(item.id, true);
+        forcePersistByIdRef.current[item.id] = true;
+        clearRequestedByIdRef.current[item.id] = false;
         const totalManual = calcularManual(next);
         setPart(item.id, { ...next, total: String(totalManual) });
         scheduleGuardarDebounced(item);
@@ -383,6 +437,8 @@ export function useConteoTableState({
 
         const v = (value || "").trim();
         onSetManaged?.(item.id, v !== "");
+        forcePersistByIdRef.current[item.id] = v !== "";
+        clearRequestedByIdRef.current[item.id] = v === "";
 
         setPart(item.id, { ...p, unidades: "", paquetes: "", saldos: "", total: value });
         scheduleGuardarDebounced(item);
@@ -423,8 +479,11 @@ export function useConteoTableState({
         if (value) {
             onSetManaged?.(item.id, true);
             dirtyByIdRef.current[item.id] = false;
+            forcePersistByIdRef.current[item.id] = false;
+            clearRequestedByIdRef.current[item.id] = false;
             clearDebounce(item.id);
             setRowState(item.id, { status: "idle" });
+            setPart(item.id, { unidades: "", paquetes: "", saldos: "", total: "0" });
         }
 
         try {
@@ -476,6 +535,7 @@ export function useConteoTableState({
         };
 
         onSetManaged?.(itemId, true);
+        clearRequestedByIdRef.current[itemId] = false;
 
         const totalManual = calcularManual(next);
 

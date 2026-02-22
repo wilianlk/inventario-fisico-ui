@@ -1,6 +1,6 @@
 import api from "./api";
 
-export type EstadoConteo = "ABIERTO" | "CERRADO";
+export type EstadoConteo = "EN_CONTEO" | "CERRADO" | "ABIERTO";
 
 export interface ItemConteo {
     id: number;
@@ -42,8 +42,24 @@ export interface ConteoPorGrupoResponse {
     items: ItemConteo[];
 }
 
+export interface ConteoActualKpis {
+    conteosActivos: number;
+    itemsContados: number;
+    noEncontrados: number;
+}
+
+export interface FinalizarConteoPayload {
+    operacionId: number;
+    numeroConteo: number;
+    conteoId: number;
+}
+
 export const obtenerConteoActual = () => {
     return api.get<DetalleConteo[]>("/Inventario/conteo/actual");
+};
+
+export const obtenerConteoActualKpis = () => {
+    return api.get<ConteoActualKpis>("/Inventario/conteo/actual/kpis");
 };
 
 export const obtenerConteoPorGrupo = (operacionId: number, grupoId: number) => {
@@ -52,10 +68,17 @@ export const obtenerConteoPorGrupo = (operacionId: number, grupoId: number) => {
     );
 };
 
-export const actualizarCantidadContada = (itemId: number, cantidadContada: number) => {
+export const obtenerConteoPorId = (conteoId: number) => {
+    return api.get<ConteoPorGrupoResponse>(
+        `/inventario/conteo/${conteoId}`
+    );
+};
+
+export const actualizarCantidadContada = (itemId: number, cantidadContada: number | null) => {
+    const payload = cantidadContada === null ? 0 : cantidadContada;
     return api.put(
         `/OperacionConteoItems/${itemId}/cantidad-contada`,
-        cantidadContada
+        payload
     );
 };
 
@@ -76,6 +99,21 @@ export const obtenerNoEncontradosPorConteo = (conteoId: number) => {
     );
 };
 
-export const finalizarConteo = (conteoId: number) => {
-    return api.put(`/Inventario/conteo/${conteoId}/finalizar`);
+export const finalizarConteo = async (
+    payload: FinalizarConteoPayload | number
+) => {
+    const conteoId = typeof payload === "number" ? payload : payload.conteoId;
+    try {
+        return await api.put(`/inventario/cerrar/conteo/${conteoId}`);
+    } catch (error: any) {
+        const status = error?.response?.status;
+        if (status === 404 || status === 405 || status === 501) {
+            return await api.put(`/inventario/conteo/${conteoId}/finalizar`);
+        }
+        throw error;
+    }
+};
+
+export const eliminarConteo = (conteoId: number) => {
+    return api.delete(`/inventario/conteo/eliminar/${conteoId}`);
 };

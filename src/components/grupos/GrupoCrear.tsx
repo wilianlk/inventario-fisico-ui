@@ -22,7 +22,6 @@ interface GrupoCrearProps {
 export function GrupoCrear({ open, onClose, onCreated }: GrupoCrearProps) {
     const [nombre, setNombre] = useState("");
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     const handleOpenChange = (value: boolean) => {
         if (!value) onClose();
@@ -32,7 +31,6 @@ export function GrupoCrear({ open, onClose, onCreated }: GrupoCrearProps) {
         e.preventDefault();
         if (!nombre.trim()) return;
         setLoading(true);
-        setError(null);
         try {
             await crearGrupo(nombre.trim());
             setNombre("");
@@ -45,7 +43,6 @@ export function GrupoCrear({ open, onClose, onCreated }: GrupoCrearProps) {
                 err?.response?.data?.message ||
                 err?.response?.data ||
                 "Error al crear el grupo.";
-            setError(msg);
             toast.error(msg);
         } finally {
             setLoading(false);
@@ -72,12 +69,6 @@ export function GrupoCrear({ open, onClose, onCreated }: GrupoCrearProps) {
                             placeholder="Ej: Grupo A, Grupo Nocturno"
                         />
                     </div>
-
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                            {error}
-                        </div>
-                    )}
 
                     <DialogFooter className="gap-2">
                         <Button

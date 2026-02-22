@@ -1,15 +1,21 @@
-﻿import { useEffect, useRef, useState } from "react";
+﻿import { ChangeEvent, useEffect, useRef, useState } from "react";
 import {
     obtenerOperaciones,
     eliminarOperacion,
     cerrarOperacion,
+    agregarConteoOperacion,
+    AgregarConteoRequest,
+    CrearOperacionRequest,
+    CerrarOperacionResponse,
     Operacion,
+    normalizarOperaciones,
 } from "@/services/inventarioService";
-import { getGruposDisponibles, GrupoConteo } from "@/services/grupoConteoService";
+import { getGruposDisponibles, getGruposPorOperacion, GrupoConteo } from "@/services/grupoConteoService";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OperacionesTable from "@/components/inventario/OperacionesTable";
 import OperacionCrear from "@/components/inventario/OperacionCrear";
+import OperacionForm from "@/components/inventario/OperacionForm";
 import OperacionGruposModal from "@/components/inventario/OperacionGruposModal";
 import { GrupoPersonas } from "@/components/grupos/GrupoPersonas";
 import { GrupoUbicaciones } from "@/components/grupos/GrupoUbicaciones";
@@ -44,24 +50,34 @@ const Operaciones = () => {
 
     const [operacionACerrar, setOperacionACerrar] = useState<Operacion | null>(null);
     const [operacionAEliminar, setOperacionAEliminar] = useState<Operacion | null>(null);
+    const [operacionAEditar, setOperacionAEditar] = useState<Operacion | null>(null);
     const [loadingCerrar, setLoadingCerrar] = useState(false);
     const [loadingEliminar, setLoadingEliminar] = useState(false);
+    const [loadingEditar, setLoadingEditar] = useState(false);
 
     const [errorCerrarMsg, setErrorCerrarMsg] = useState<string>("");
+    const [errorEditarMsg, setErrorEditarMsg] = useState<string>("");
+    const [nuevoConteo, setNuevoConteo] = useState<number>(2);
+    const [formEditar, setFormEditar] = useState<CrearOperacionRequest | null>(null);
+    const [gruposEditar, setGruposEditar] = useState<GrupoConteo[]>([]);
+    const [loadingGruposEditar, setLoadingGruposEditar] = useState(false);
+    const [gruposEditarLoaded, setGruposEditarLoaded] = useState(false);
     const didInitRef = useRef(false);
-
-    const normalizarRespuestaOperaciones = (data: any): Operacion[] => {
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.data)) return data.data;
-        if (Array.isArray(data.result)) return data.result;
-        return [];
-    };
 
     const normalizarRespuestaGrupos = (data: any): GrupoConteo[] => {
         if (Array.isArray(data)) return data;
         if (Array.isArray(data.data)) return data.data;
         if (Array.isArray(data.result)) return data.result;
         return [];
+    };
+
+    const mergeGrupos = (base: GrupoConteo[], extra: GrupoConteo[]) => {
+        const mapa = new Map<number, GrupoConteo>();
+        (Array.isArray(base) ? base : []).forEach((g) => mapa.set(g.id, g));
+        (Array.isArray(extra) ? extra : []).forEach((g) => {
+            if (!mapa.has(g.id)) mapa.set(g.id, g);
+        });
+        return Array.from(mapa.values());
     };
 
     const parseApiErrorMessage = (error: any, fallback: string) => {
@@ -77,7 +93,7 @@ const Operaciones = () => {
         try {
             setLoadingOperaciones(true);
             const resp = await obtenerOperaciones();
-            const lista = normalizarRespuestaOperaciones(resp.data);
+            const lista = normalizarOperaciones(resp.data);
             setOperaciones(lista);
         } catch (error) {
             console.error(error);
@@ -109,7 +125,6 @@ const Operaciones = () => {
 
     const handleCreated = async () => {
         await cargarOperaciones();
-        setTab("lista");
     };
 
     const handleEliminarClick = (id: number) => {
@@ -150,13 +165,19 @@ const Operaciones = () => {
             return;
         }
 
-        if (!op.numeroConteo || ![1, 2, 3].includes(op.numeroConteo)) {
-            toast.warning("El número de conteo inicial no es válido (debe ser 1, 2 o 3).");
-            return;
-        }
-
         setErrorCerrarMsg("");
         setOperacionACerrar(op);
+    };
+
+    const handleAgregarConteoClick = (op: Operacion) => {
+        if (op.estado === "CERRADA") {
+            toast.warning("No se puede editar una operación cerrada.");
+            return;
+        }
+        const conteoActual = Number(op.numeroConteo) || 1;
+        setErrorEditarMsg("");
+        setOperacionAEditar(op);
+        setNuevoConteo([1, 2, 3].includes(conteoActual) ? conteoActual : 1);
     };
 
     const confirmarCerrar = async () => {
@@ -164,8 +185,16 @@ const Operaciones = () => {
         try {
             setLoadingCerrar(true);
             setErrorCerrarMsg("");
-            await cerrarOperacion(operacionACerrar.id);
-            toast.success("Operación cerrada correctamente.");
+            const resp = await cerrarOperacion(operacionACerrar.id);
+            const data = (resp?.data || {}) as CerrarOperacionResponse;
+            const mensaje = data?.mensaje || "Operación cerrada correctamente.";
+            const conteosCerrados = Number(data?.conteosCerrados);
+            if (Number.isFinite(conteosCerrados)) {
+                const plural = conteosCerrados === 1 ? "" : "s";
+                toast.success(`${mensaje} (${conteosCerrados} conteo${plural} cerrado${plural}).`);
+            } else {
+                toast.success(mensaje);
+            }
             await cargarOperaciones();
             setOperacionACerrar(null);
         } catch (error: any) {
@@ -175,6 +204,82 @@ const Operaciones = () => {
         } finally {
             setLoadingCerrar(false);
         }
+    };
+
+    const confirmarAgregarConteo = async () => {
+        if (!operacionAEditar || !formEditar) return;
+        try {
+            setLoadingEditar(true);
+            setErrorEditarMsg("");
+            const payload: AgregarConteoRequest = {
+                numeroConteo: nuevoConteo,
+            };
+            if (formEditar.gruposIds && formEditar.gruposIds.length > 0) {
+                payload.gruposIds = formEditar.gruposIds;
+            }
+            await agregarConteoOperacion(operacionAEditar.id, payload);
+            toast.success("Conteo agregado correctamente.");
+            await cargarOperaciones();
+            setOperacionAEditar(null);
+        } catch (error: any) {
+            console.error(error);
+            const msg = parseApiErrorMessage(error, "No se pudo agregar el conteo.");
+            setErrorEditarMsg(msg);
+        } finally {
+            setLoadingEditar(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!operacionAEditar) {
+            setFormEditar(null);
+            setGruposEditar([]);
+            setGruposEditarLoaded(false);
+            return;
+        }
+
+        const fecha = operacionAEditar.fecha ? String(operacionAEditar.fecha).slice(0, 10) : "";
+
+        setFormEditar({
+            bodega: operacionAEditar.bodega ?? "11",
+            fecha,
+            observaciones: operacionAEditar.observaciones ?? "",
+            usuarioCreacion: operacionAEditar.usuarioCreacion ?? "",
+            numeroConteo: operacionAEditar.numeroConteo ?? 1,
+            gruposIds: [],
+        });
+
+        setLoadingGruposEditar(true);
+        setGruposEditarLoaded(false);
+        getGruposPorOperacion(operacionAEditar.id)
+            .then((lista) => {
+                const grupos = Array.isArray(lista) ? lista : [];
+                setGruposEditar(grupos);
+                setGruposEditarLoaded(true);
+                setFormEditar((prev: CrearOperacionRequest | null) =>
+                    prev ? { ...prev, gruposIds: grupos.map((g) => g.id) } : prev
+                );
+            })
+            .catch(() => {
+                setGruposEditar([]);
+                setGruposEditarLoaded(false);
+            })
+            .finally(() => {
+                setLoadingGruposEditar(false);
+            });
+    }, [operacionAEditar]);
+
+    const toggleGrupoEditar = (grupoId: number, checked: boolean) => {
+        setFormEditar((prev) => {
+            if (!prev) return prev;
+            const actual = prev.gruposIds || [];
+            const next = checked
+                ? actual.includes(grupoId)
+                    ? actual
+                    : [...actual, grupoId]
+                : actual.filter((id) => id !== grupoId);
+            return { ...prev, gruposIds: next };
+        });
     };
 
     const formatearFecha = (valor: string) => {
@@ -262,6 +367,8 @@ const Operaciones = () => {
                                 onEliminar={handleEliminarClick}
                                 formatearFecha={formatearFecha}
                                 onVerGrupos={handleVerGrupos}
+                                onAgregarConteo={handleAgregarConteoClick}
+                                onConteoEliminado={handleCreated}
                             />
                         </TabsContent>
                     </div>
@@ -289,6 +396,78 @@ const Operaciones = () => {
             />
 
             <Dialog
+                open={!!operacionAEditar}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setOperacionAEditar(null);
+                        setErrorEditarMsg("");
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Agregar conteo</DialogTitle>
+                        <DialogDescription>
+                            Solo se permite aumentar el número de conteo.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {operacionAEditar && formEditar ? (
+                        <div className="space-y-3">
+                            <OperacionForm
+                                form={{ ...formEditar, numeroConteo: nuevoConteo }}
+                                onChangeForm={() => undefined}
+                                gruposDisponibles={mergeGrupos(gruposDisponibles, gruposEditar)}
+                                onToggleGrupo={toggleGrupoEditar}
+                                onNumeroConteoChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                                    setNuevoConteo(Number(e.target.value))
+                                }
+                                conteoForzado={undefined}
+                                onCrear={() => undefined}
+                                loading={loadingGruposEditar}
+                                canCreate
+                                errores={{}}
+                                disabledFields={{
+                                    fecha: true,
+                                    observaciones: true,
+                                    grupos: false,
+                                    numeroConteo: false,
+                                }}
+                                hideSubmit
+                            />
+                        </div>
+                    ) : null}
+
+                    {errorEditarMsg ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                            {errorEditarMsg}
+                        </div>
+                    ) : null}
+
+                    <DialogFooter className="gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setOperacionAEditar(null);
+                                setErrorEditarMsg("");
+                            }}
+                            disabled={loadingEditar}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={confirmarAgregarConteo}
+                            disabled={loadingEditar}
+                        >
+                            {loadingEditar ? "Guardando..." : "Agregar conteo"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
                 open={!!operacionACerrar}
                 onOpenChange={(open) => {
                     if (!open) {
@@ -297,24 +476,18 @@ const Operaciones = () => {
                     }
                 }}
             >
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Cerrar operación</DialogTitle>
-                        <DialogDescription>
-                            Se cerrará la operación de inventario seleccionada. Esta acción no se puede deshacer.
-                        </DialogDescription>
-                    </DialogHeader>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>Cerrar operación</DialogTitle>
+                            <DialogDescription>
+                                Se cerrará la operación de inventario seleccionada. Esta acción no se puede deshacer.
+                            </DialogDescription>
+                        </DialogHeader>
 
                     {operacionACerrar && (
-                        <div className="text-sm text-slate-700 space-y-1 mb-4">
-                            <div>
-                                <span className="font-medium">ID:</span> {operacionACerrar.id}
-                            </div>
-                            <div>
-                                <span className="font-medium">Bodega:</span> {operacionACerrar.bodega}
-                            </div>
-                            <div>
-                                <span className="font-medium">Conteo:</span> {operacionACerrar.numeroConteo}
+                        <div className="space-y-3 mb-4">
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                Este cierre aplica a toda la operación, sin importar desde qué bloque de conteo se presione.
                             </div>
                         </div>
                     )}
@@ -325,7 +498,7 @@ const Operaciones = () => {
                         </div>
                     ) : null}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 pt-1">
                         <Button
                             type="button"
                             variant="outline"
@@ -334,6 +507,7 @@ const Operaciones = () => {
                                 setErrorCerrarMsg("");
                             }}
                             disabled={loadingCerrar}
+                            className="min-w-28"
                         >
                             Cancelar
                         </Button>
@@ -341,8 +515,9 @@ const Operaciones = () => {
                             type="button"
                             onClick={confirmarCerrar}
                             disabled={loadingCerrar}
+                            className="min-w-32"
                         >
-                            {loadingCerrar ? "Cerrando..." : "Cerrar operación"}
+                            {loadingCerrar ? "Cerrando operación..." : "Confirmar cierre"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -363,25 +538,20 @@ const Operaciones = () => {
                     </DialogHeader>
 
                     {operacionAEliminar && (
-                        <div className="text-sm text-slate-700 space-y-1 mb-4">
-                            <div>
-                                <span className="font-medium">ID:</span> {operacionAEliminar.id}
-                            </div>
-                            <div>
-                                <span className="font-medium">Bodega:</span> {operacionAEliminar.bodega}
-                            </div>
-                            <div>
-                                <span className="font-medium">Conteo:</span> {operacionAEliminar.numeroConteo}
+                        <div className="space-y-3 mb-4">
+                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
+                                Esta acción elimina la operación y no se puede deshacer.
                             </div>
                         </div>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 pt-1">
                         <Button
                             type="button"
                             variant="outline"
                             onClick={() => setOperacionAEliminar(null)}
                             disabled={loadingEliminar}
+                            className="min-w-28"
                         >
                             Cancelar
                         </Button>
@@ -390,8 +560,9 @@ const Operaciones = () => {
                             variant="destructive"
                             onClick={confirmarEliminar}
                             disabled={loadingEliminar}
+                            className="min-w-32"
                         >
-                            {loadingEliminar ? "Eliminando..." : "Eliminar operación"}
+                            {loadingEliminar ? "Eliminando operación..." : "Confirmar eliminación"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -401,6 +572,9 @@ const Operaciones = () => {
 };
 
 export default Operaciones;
+
+
+
 
 
 

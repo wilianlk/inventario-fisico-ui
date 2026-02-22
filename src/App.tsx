@@ -49,10 +49,8 @@ function App() {
                         <Route path="/conteos" element={session ? <Conteos /> : <Navigate to="/login" replace />} />
                         <Route path="/consolidacion" element={session ? <Consolidacion /> : <Navigate to="/login" replace />} />
 
-                        <Route
-                            path="/conteo/:operacionId/:grupoId"
-                            element={session ? <ConteoPorGrupo /> : <Navigate to="/login" replace />}
-                        />
+                        <Route path="/conteo/:operacionId/:grupoId" element={<ConteoPorGrupo />} />
+                        <Route path="/conteo/:conteoId" element={<ConteoPorGrupo />} />
 
                         <Route
                             path="/conteo/no-encontrados"

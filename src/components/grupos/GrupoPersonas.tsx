@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { GrupoConteo } from "@/services/grupoConteoService";
 import {
     Dialog,
@@ -11,6 +12,7 @@ import { GrupoPersonasHeader } from "./personas/GrupoPersonasHeader";
 import { GrupoPersonasEmptyState } from "./personas/GrupoPersonasEmptyState";
 import { GrupoPersonasForm } from "./personas/GrupoPersonasForm";
 import { GrupoPersonasTable } from "./personas/GrupoPersonasTable";
+import { toast } from "react-toastify";
 
 interface GrupoPersonasProps {
     open: boolean;
@@ -19,6 +21,7 @@ interface GrupoPersonasProps {
 }
 
 export function GrupoPersonas({ open, grupo, onClose }: GrupoPersonasProps) {
+    const lastErrorRef = useRef<string | null>(null);
     const {
         personas,
         loading,
@@ -36,6 +39,13 @@ export function GrupoPersonas({ open, grupo, onClose }: GrupoPersonasProps) {
         handleEliminar,
         load,
     } = useGrupoPersonas({ open, grupo, onClose });
+
+    useEffect(() => {
+        if (!error) return;
+        if (lastErrorRef.current === error) return;
+        lastErrorRef.current = error;
+        toast.error(error);
+    }, [error]);
 
     if (!grupo) {
         return (
@@ -69,12 +79,6 @@ export function GrupoPersonas({ open, grupo, onClose }: GrupoPersonasProps) {
                     loadingAdd={loadingAdd}
                     onRefresh={load}
                 />
-
-                {error ? (
-                    <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                        {error}
-                    </div>
-                ) : null}
 
                 <GrupoPersonasEmptyState show={emptyState} />
 

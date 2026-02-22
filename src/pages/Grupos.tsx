@@ -31,12 +31,10 @@ function Grupos() {
     const [ubicacionesOpen, setUbicacionesOpen] = useState(false);
     const [grupoSeleccionado, setGrupoSeleccionado] =
         useState<GrupoConteo | null>(null);
-    const [error, setError] = useState<string | null>(null);
     const didInitRef = useRef(false);
 
     const cargarGrupos = async () => {
         setLoading(true);
-        setError(null);
         try {
             const data = await getGruposTodos();
             const filtro = grupoFiltro.trim();
@@ -54,10 +52,9 @@ function Grupos() {
             }
             setGrupos(filtrados);
             if (filtro && filtrados.length === 0) {
-                setError("No hay grupos con ese filtro.");
+                toast.info("No hay grupos con ese filtro.");
             }
         } catch {
-            setError("Error al cargar grupos.");
             toast.error("Error al cargar los grupos.");
             setGrupos([]);
         } finally {
@@ -82,7 +79,6 @@ function Grupos() {
             }
             await cargarGrupos();
         } catch {
-            setError("Error al cambiar estado del grupo.");
             toast.error("No se pudo cambiar el estado del grupo.");
         }
     };
@@ -163,12 +159,6 @@ function Grupos() {
                             Limpiar
                         </Button>
                     </form>
-
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                            {error}
-                        </div>
-                    )}
 
                     <GrupoTable
                         grupos={grupos}

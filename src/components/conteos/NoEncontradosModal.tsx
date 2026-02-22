@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { ItemConteo, obtenerNoEncontradosPorConteo } from "@/services/conteoService";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "react-toastify";
 
 interface Props {
     open: boolean;
@@ -11,7 +12,7 @@ interface Props {
 export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
     const [items, setItems] = useState<ItemConteo[]>([]);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [hasError, setHasError] = useState(false);
 
     const extraerMsgError = (err: any, fallback: string) => {
         const data = err?.response?.data;
@@ -23,12 +24,13 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
         if (!open || !conteoId) return;
 
         setLoading(true);
-        setError(null);
+        setHasError(false);
         obtenerNoEncontradosPorConteo(conteoId)
             .then((r) => setItems(r.data ?? []))
             .catch((err) => {
                 const msg = extraerMsgError(err, "Error al cargar no encontrados.");
-                setError(msg);
+                setHasError(true);
+                toast.error(msg);
             })
             .finally(() => setLoading(false));
     }, [open, conteoId]);
@@ -43,7 +45,7 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
                 <div className="w-full max-w-5xl rounded-2xl bg-white shadow-xl border">
                     <div className="flex items-center justify-between px-4 py-3 border-b">
                         <div className="text-sm font-semibold">
-                            Detalle no encontrados {conteoId ? <span className="font-mono">· Conteo {conteoId}</span> : null}
+                            Detalle no encontrados {conteoId ? <span className="font-mono">Â· Conteo {conteoId}</span> : null}
                         </div>
 
                         <button
@@ -57,11 +59,9 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
 
                     <div className="p-4">
                         {loading ? (
-                            <div className="text-sm text-slate-600">Cargando…</div>
-                        ) : error ? (
-                            <div className="text-sm text-red-700">{error}</div>
-                        ) : items.length === 0 ? (
-                            <div className="text-sm text-slate-600">No hay ítems no encontrados.</div>
+                            <div className="text-sm text-slate-600">Cargandoâ€¦</div>
+                        ) : hasError ? null : items.length === 0 ? (
+                            <div className="text-sm text-slate-600">No hay Ã­tems no encontrados.</div>
                         ) : (
                             <>
                                 <div className="text-xs text-slate-600 mb-3">
@@ -74,7 +74,7 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
                                         return (
                                             <div key={item.id} className="rounded-xl border bg-white p-3 shadow-sm">
                                                 <div className="text-xs font-semibold text-slate-900">
-                                                    {etiqueta ? `${etiqueta} · ` : ""}
+                                                    {etiqueta ? `${etiqueta} Â· ` : ""}
                                                     <span className="font-mono">{(item.codigoItem || "").trim()}</span>
                                                 </div>
 
@@ -84,7 +84,7 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
 
                                                 <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-700">
                                                     <div>
-                                                        <div className="text-slate-500">Ubicación</div>
+                                                        <div className="text-slate-500">UbicaciÃ³n</div>
                                                         <div className="font-mono truncate">{(item.ubicacion || "").trim()}</div>
                                                     </div>
                                                     <div>
@@ -110,10 +110,10 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead className="whitespace-nowrap">Etiqueta</TableHead>
-                                                <TableHead className="whitespace-nowrap">Código ítem</TableHead>
-                                                <TableHead className="whitespace-nowrap">Descripción</TableHead>
+                                                <TableHead className="whitespace-nowrap">CÃ³digo Ã­tem</TableHead>
+                                                <TableHead className="whitespace-nowrap">DescripciÃ³n</TableHead>
                                                 <TableHead className="whitespace-nowrap">Udm</TableHead>
-                                                <TableHead className="whitespace-nowrap">Ubicación</TableHead>
+                                                <TableHead className="whitespace-nowrap">UbicaciÃ³n</TableHead>
                                                 <TableHead className="whitespace-nowrap">Num. lote</TableHead>
                                                 <TableHead className="whitespace-nowrap text-right">Contada</TableHead>
                                             </TableRow>
@@ -145,3 +145,5 @@ export default function NoEncontradosModal({ open, conteoId, onClose }: Props) {
         </div>
     );
 }
+
+

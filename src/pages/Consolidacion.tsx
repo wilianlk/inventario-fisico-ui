@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import {
     generarDI81,
@@ -142,6 +142,12 @@ const Consolidacion = () => {
         }
     };
 
+    const validarTodasFinalizadas = async (ids: number[]): Promise<boolean> => {
+        if (!ids.length) return false;
+        const resultados = await Promise.all(ids.map((id) => validarFinalizada(id)));
+        return resultados.every(Boolean);
+    };
+
     const cargar = async () => {
         setLoading(true);
         try {
@@ -150,16 +156,16 @@ const Consolidacion = () => {
             const next = Array.isArray(raw) ? raw : [];
 
             if (finalizada && next.length === 0 && items.length > 0) {
-                toast.info("La operación está finalizada. Se mantiene el snapshot en pantalla.");
+                toast.info("La consolidación está finalizada. Se mantiene el snapshot en pantalla.");
                 return;
             }
 
             setItems(next);
 
-            const ids = getOperacionIdsFromItems(next as any[]);
-            if (ids.length === 1) {
+            const ids = getOperacionIdsFromItems(next as any[]).sort((a, b) => a - b);
+            if (ids.length >= 1) {
                 setValidandoEstado(true);
-                const ok = await validarFinalizada(ids[0]);
+                const ok = await validarTodasFinalizadas(ids);
                 setFinalizada(ok);
                 setValidandoEstado(false);
             } else {
@@ -217,19 +223,14 @@ const Consolidacion = () => {
             return;
         }
 
-        if (operacionIds.length !== 1) {
-            toast.error("Solo se puede finalizar cuando hay una sola operación cargada.");
-            return;
-        }
-
-        const operacionId = operacionIds[0];
-
         try {
             setFinalizando(true);
 
-            await cerrarConsolidacion(operacionId);
+            for (const operacionId of operacionIds) {
+                await cerrarConsolidacion(operacionId);
+            }
 
-            toast.success("Operación y consolidación finalizadas.");
+            toast.success("Operaciones y consolidación finalizadas.");
             setFinalizada(true);
             setOpenFinalizar(false);
         } catch (e: any) {
@@ -247,24 +248,17 @@ const Consolidacion = () => {
             return;
         }
 
-        if (operacionIds.length !== 1) {
-            toast.error("Solo se puede generar el archivo cuando hay una sola operación cargada.");
-            return;
-        }
-
-        const operacionId = operacionIds[0];
-
         if (!finalizada) {
-            toast.error(
-                `Operación ${operacionId}: la consolidación no está FINALIZADA. Solo cuando esté FINALIZADA se puede generar el archivo.`
-            );
+            toast.error("La consolidación no está FINALIZADA para todas las operaciones.");
             return;
         }
 
         try {
-            const resp = await generarDI81(operacionId);
-            const filename = nombreDesdeHeaders(resp.headers, `DI81_${operacionId}.txt`);
-            descargarBlob(resp.data, filename);
+            for (const operacionId of operacionIds) {
+                const resp = await generarDI81(operacionId);
+                const filename = nombreDesdeHeaders(resp.headers, `DI81_${operacionId}.txt`);
+                descargarBlob(resp.data, filename);
+            }
         } catch (e: any) {
             toast.error(errorMsg(e, "No se pudo generar el archivo."));
         }
@@ -284,7 +278,7 @@ const Consolidacion = () => {
                     onClear={limpiar}
                     onReload={() => {
                         if (finalizada) {
-                            toast.info("La operación está finalizada. No se recarga para mantener la información en pantalla.");
+                            toast.info("La consolidación está finalizada. No se recarga para mantener la información en pantalla.");
                             return;
                         }
                         void cargar();
@@ -305,10 +299,6 @@ const Consolidacion = () => {
                                 const ids = getOperacionIds();
                                 if (ids.length === 0) {
                                     toast.error("No hay operación cargada.");
-                                    return;
-                                }
-                                if (ids.length !== 1) {
-                                    toast.error("Solo se puede finalizar/generar cuando hay una sola operación cargada.");
                                     return;
                                 }
 

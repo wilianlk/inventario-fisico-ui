@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+﻿import { Button } from "@/components/ui/button";
 import ConteoTable, { SearchFilters } from "@/components/conteos/ConteoTable";
 import { DetalleConteo, ItemConteo } from "@/services/conteoService";
 
@@ -7,13 +7,15 @@ interface Props {
     estado: string;
     editable: boolean;
     finalizando: boolean;
+    eliminando: boolean;
     loadingItems: boolean;
 
     selectedItemId: number | null;
     searchFilters: SearchFilters;
 
     onFinalizarClick: (detalle: DetalleConteo) => void;
-    onUpdateCantidad: (id: number, cantidad: number) => Promise<void>;
+    onEliminarClick: (detalle: DetalleConteo) => void;
+    onUpdateCantidad: (id: number, cantidad: number | null) => Promise<void>;
 
     isManaged: (id: number) => boolean;
     onSetManaged: (id: number, managed: boolean) => void;
@@ -33,10 +35,12 @@ export default function ConteoDetalleCard({
                                               estado,
                                               editable,
                                               finalizando,
+                                              eliminando,
                                               loadingItems,
                                               selectedItemId,
                                               searchFilters,
                                               onFinalizarClick,
+                                              onEliminarClick,
                                               onUpdateCantidad,
                                               isManaged,
                                               onSetManaged,
@@ -59,15 +63,25 @@ export default function ConteoDetalleCard({
                     </div>
                 </div>
 
-                <div className="w-full sm:w-auto">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                     <Button
                         type="button"
                         size="sm"
                         onClick={() => onFinalizarClick(detalle)}
-                        disabled={!editable || finalizando}
+                        disabled={!editable || finalizando || eliminando}
                         className="w-full sm:w-auto"
                     >
                         {finalizando ? "Finalizando..." : "Finalizar conteo"}
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => onEliminarClick(detalle)}
+                        disabled={eliminando || finalizando}
+                        className="w-full sm:w-auto"
+                    >
+                        {eliminando ? "Eliminando..." : "Eliminar conteo"}
                     </Button>
                 </div>
             </div>
@@ -94,3 +108,4 @@ export default function ConteoDetalleCard({
         </div>
     );
 }
+

@@ -23,6 +23,13 @@ interface OperacionFormProps {
     loading: boolean;
     canCreate?: boolean;
     errores?: ErroresForm;
+    disabledFields?: {
+        fecha?: boolean;
+        observaciones?: boolean;
+        grupos?: boolean;
+        numeroConteo?: boolean;
+    };
+    hideSubmit?: boolean;
 }
 
 const OperacionForm = ({
@@ -36,6 +43,8 @@ const OperacionForm = ({
                            loading,
                            canCreate,
                            errores = {},
+                           disabledFields = {},
+                           hideSubmit = false,
                        }: OperacionFormProps) => {
     const [qGrupos, setQGrupos] = useState("");
     const [selectorOpen, setSelectorOpen] = useState(false);
@@ -103,6 +112,7 @@ const OperacionForm = ({
                         name="fecha"
                         value={form.fecha}
                         onChange={onChangeForm}
+                        disabled={!!disabledFields.fecha}
                         className={errores.fecha ? "border-red-500 focus-visible:ring-red-500" : ""}
                     />
                     {errores.fecha ? <p className="text-xs text-red-600 mt-1">{errores.fecha}</p> : null}
@@ -118,6 +128,7 @@ const OperacionForm = ({
                             className="h-9 border rounded-md px-2 text-sm w-full bg-white"
                             value={form.numeroConteo}
                             onChange={onNumeroConteoChange}
+                            disabled={!!disabledFields.numeroConteo}
                         >
                             <option value={1}>Conteo 1</option>
                             <option value={2}>Conteo 2</option>
@@ -133,6 +144,7 @@ const OperacionForm = ({
                         placeholder="Comentarios adicionales"
                         value={form.observaciones || ""}
                         onChange={onChangeForm}
+                        disabled={!!disabledFields.observaciones}
                     />
                 </div>
 
@@ -150,6 +162,7 @@ const OperacionForm = ({
                                 size="sm"
                                 className="h-8 px-3 text-xs"
                                 onClick={seleccionarTodos}
+                                disabled={!!disabledFields.grupos}
                             >
                                 Todos
                             </Button>
@@ -159,6 +172,7 @@ const OperacionForm = ({
                                 size="sm"
                                 className="h-8 px-3 text-xs"
                                 onClick={limpiarSeleccion}
+                                disabled={!!disabledFields.grupos}
                             >
                                 Limpiar
                             </Button>
@@ -167,6 +181,7 @@ const OperacionForm = ({
                                 size="sm"
                                 className="h-8 px-3 text-xs"
                                 onClick={() => setSelectorOpen(true)}
+                                disabled={!!disabledFields.grupos}
                             >
                                 Elegir grupos
                             </Button>
@@ -185,6 +200,7 @@ const OperacionForm = ({
                                         type="button"
                                         className="flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
                                         onClick={() => onToggleGrupo(g.id, false)}
+                                        disabled={!!disabledFields.grupos}
                                     >
                                         <span className="font-mono">#{g.id}</span>
                                         <span className="truncate max-w-[180px]">{g.nombre}</span>
@@ -213,15 +229,23 @@ const OperacionForm = ({
                     )}
                 </div>
 
-                <div className="md:col-span-2 flex justify-center">
-                    <Button onClick={onCrear} disabled={disabledCrear}>
-                        {loading ? "Creando..." : "Crear operación"}
-                    </Button>
-                </div>
+                {!hideSubmit ? (
+                    <div className="md:col-span-2 flex justify-center">
+                        <Button onClick={onCrear} disabled={disabledCrear}>
+                            {loading ? "Creando..." : "Crear operación"}
+                        </Button>
+                    </div>
+                ) : null}
             </CardContent>
         </Card>
 
-        <Dialog open={selectorOpen} onOpenChange={setSelectorOpen}>
+        <Dialog
+            open={selectorOpen && !disabledFields.grupos}
+            onOpenChange={(v) => {
+                if (disabledFields.grupos) return;
+                setSelectorOpen(v);
+            }}
+        >
             <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Seleccionar grupos</DialogTitle>

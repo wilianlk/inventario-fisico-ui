@@ -5,8 +5,17 @@ import { SearchFilters } from "@/components/conteos/ConteoTable";
 import ConteosDetalleList from "@/components/conteos/ConteosDetalleList";
 import ConteosFinalizarFlow, { ConteosFinalizarFlowHandle } from "@/components/conteos/ConteosFinalizarFlow";
 import ConteosScanBlock, { ConteosScanBlockHandle, ScanApplyPayload } from "@/components/conteos/ConteosScanBlock";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
-import { actualizarCantidadContada, DetalleConteo, obtenerConteoActual } from "@/services/conteoService";
+import { actualizarCantidadContada, DetalleConteo, obtenerConteoActual, eliminarConteo } from "@/services/conteoService";
 
 const Conteos = () => {
     const [detalles, setDetalles] = useState<DetalleConteo[]>([]);
@@ -26,7 +35,10 @@ const Conteos = () => {
     });
 
     const [finalizandoByConteoId, setFinalizandoByConteoId] = useState<Record<number, boolean>>({});
+    const [eliminandoByConteoId, setEliminandoByConteoId] = useState<Record<number, boolean>>({});
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmEliminarOpen, setConfirmEliminarOpen] = useState(false);
+    const [detalleAEliminar, setDetalleAEliminar] = useState<DetalleConteo | null>(null);
 
     const didLoadRef = useRef(false);
 
@@ -60,7 +72,7 @@ const Conteos = () => {
         const map: Record<string, string> = {};
         for (const d of detalles) {
             const key = `${d.operacionId}-${d.grupoId}-${d.numeroConteo}`;
-            map[key] = d.estadoConteo ? String(d.estadoConteo).toUpperCase() : "";
+            map[key] = d.estadoConteo ? String(d.estadoConteo).trim().toUpperCase() : "";
         }
         return map;
     }, [detalles]);
@@ -69,7 +81,7 @@ const Conteos = () => {
         const key = `${d.operacionId}-${d.grupoId}-${d.numeroConteo}`;
         const st = estadoByDetalleKey[key];
         if (!st) return true;
-        return st === "ABIERTO";
+        return st === "EN_CONTEO" || st === "ABIERTO";
     };
 
     const detalleKeyByItemId = useMemo(() => {
@@ -88,7 +100,7 @@ const Conteos = () => {
         if (!key) return true;
         const st = estadoByDetalleKey[key];
         if (!st) return true;
-        return st === "ABIERTO";
+        return st === "EN_CONTEO" || st === "ABIERTO";
     };
 
     const toastMissingConteo = (itemId: number) => {
@@ -118,7 +130,7 @@ const Conteos = () => {
                 const n = v === null || v === undefined ? null : Number(v);
                 map[it.id] = Number.isFinite(n as any) ? (n as any) : null;
 
-                managed[it.id] = n !== null && n !== undefined && Number.isFinite(n as any) && n !== 0;
+                managed[it.id] = n !== null && n !== undefined && Number.isFinite(n as any);
             }
         }
 
@@ -156,7 +168,7 @@ const Conteos = () => {
         }
     };
 
-    const enqueuePersist = (itemId: number, cantidad: number) => {
+    const enqueuePersist = (itemId: number, cantidad: number | null) => {
         const prev = queueByIdRef.current[itemId] ?? Promise.resolve();
         const next = prev
             .catch(() => undefined)
@@ -181,6 +193,18 @@ const Conteos = () => {
                     conteoId: (it as any).conteoId ?? det.conteoId ?? null,
                 })),
             }));
+            const missingEstado = listaConConteo.some((det) => !det.estadoConteo);
+            if (missingEstado) {
+                const flag = "conteos_reload_missing_estado";
+                const already = sessionStorage.getItem(flag) === "1";
+                if (!already) {
+                    sessionStorage.setItem(flag, "1");
+                    window.location.reload();
+                    return;
+                }
+            } else {
+                sessionStorage.removeItem("conteos_reload_missing_estado");
+            }
             setDetalles(listaConConteo);
             rebuildQtyRefs(listaConConteo);
             setHighlightByConteoId({});
@@ -199,7 +223,7 @@ const Conteos = () => {
         }
     };
 
-    const guardarCantidadAbsoluta = async (itemId: number, cantidad: number) => {
+    const guardarCantidadAbsoluta = async (itemId: number, cantidad: number | null) => {
         scanUiRef.current?.markManualIntent();
 
         if (!editableItemId(itemId)) {
@@ -212,19 +236,47 @@ const Conteos = () => {
             return;
         }
 
-        const n = Number(cantidad);
-        const nueva = Number.isFinite(n) ? Math.max(0, n) : 0;
+        const nueva = cantidad === null ? null : Math.max(0, Number(cantidad) || 0);
 
         const prevConfirm = confirmedByIdRef.current[itemId] ?? null;
         setLocalCantidad(itemId, nueva);
-        setManaged(itemId, true);
+        setManaged(itemId, nueva !== null);
 
         try {
             await enqueuePersist(itemId, nueva);
         } catch (error: any) {
             console.error(error);
             setLocalCantidad(itemId, prevConfirm);
+            setManaged(itemId, prevConfirm !== null);
             throw error;
+        }
+    };
+
+    const openEliminar = (detalle: DetalleConteo) => {
+        setDetalleAEliminar(detalle);
+        setConfirmEliminarOpen(true);
+    };
+
+    const confirmarEliminar = async () => {
+        if (!detalleAEliminar?.conteoId) return;
+        const conteoId = detalleAEliminar.conteoId;
+        setEliminandoByConteoId((p) => ({ ...p, [conteoId]: true }));
+        try {
+            await eliminarConteo(conteoId);
+            toast.success("Conteo eliminado correctamente.");
+            await cargarConteoActual();
+        } catch (error: any) {
+            const msg =
+                error?.response?.data?.mensaje ||
+                error?.response?.data?.message ||
+                (typeof error?.response?.data === "string" ? error.response.data : null) ||
+                error?.message ||
+                "No se pudo eliminar el conteo.";
+            toast.error(String(msg));
+        } finally {
+            setEliminandoByConteoId((p) => ({ ...p, [conteoId]: false }));
+            setConfirmEliminarOpen(false);
+            setDetalleAEliminar(null);
         }
     };
 
@@ -298,11 +350,13 @@ const Conteos = () => {
                     estadoByDetalleKey={estadoByDetalleKey}
                     editableDetalle={editableDetalle}
                     finalizandoByConteoId={finalizandoByConteoId}
+                    eliminandoByConteoId={eliminandoByConteoId}
                     highlightByConteoId={highlightByConteoId}
                     loadingItems={loadingItems}
                     selectedItemId={selectedItemId}
                     searchFilters={busqueda}
                     onFinalizarClick={(d) => finalizarRef.current?.openConfirm(d)}
+                    onEliminarClick={openEliminar}
                     onUpdateCantidad={guardarCantidadAbsoluta}
                     isManaged={isManaged}
                     onSetManaged={setManaged}
@@ -325,6 +379,63 @@ const Conteos = () => {
                 onAfterClose={() => scanUiRef.current?.afterModalOrDialogClose()}
                 onMarkManualIntent={() => scanUiRef.current?.markManualIntent()}
             />
+
+            <Dialog
+                open={confirmEliminarOpen}
+                onOpenChange={(v) => {
+                    if (!v) {
+                        setConfirmEliminarOpen(false);
+                        setDetalleAEliminar(null);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>¿Eliminar este conteo?</DialogTitle>
+                        <DialogDescription>
+                            Se eliminará el conteo y la consolidación relacionada. Esta acción no se puede deshacer.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {detalleAEliminar ? (
+                        <div className="text-sm text-slate-700 space-y-1">
+                            <div>
+                                <span className="font-medium">Operación:</span> {detalleAEliminar.operacionId}
+                            </div>
+                            <div>
+                                <span className="font-medium">Grupo:</span> {detalleAEliminar.grupo}
+                            </div>
+                            <div>
+                                <span className="font-medium">Conteo:</span> {detalleAEliminar.numeroConteo}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <DialogFooter className="gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setConfirmEliminarOpen(false);
+                                setDetalleAEliminar(null);
+                            }}
+                            disabled={detalleAEliminar ? !!eliminandoByConteoId[detalleAEliminar.conteoId] : false}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={confirmarEliminar}
+                            disabled={detalleAEliminar ? !!eliminandoByConteoId[detalleAEliminar.conteoId] : false}
+                        >
+                            {detalleAEliminar && eliminandoByConteoId[detalleAEliminar.conteoId]
+                                ? "Eliminando..."
+                                : "Eliminar conteo"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 };
